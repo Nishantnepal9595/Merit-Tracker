@@ -1048,7 +1048,7 @@ with tab_food:
                     st.toast(f"✦ {item} added! You now have ×{new_count} in stash {emoji}", icon="🛒")
                     st.rerun()
                 else:
-                    st.error(f"❌ Need {price - d['balance']} more coins!"))
+                    st.error(f"❌ Need {price - d['balance']} more coins!")
 
 with tab_virtual:
     for tier, items in VIRTUAL_SHOP.items():

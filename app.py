@@ -1029,16 +1029,26 @@ with tab_food:
                 <span class="shop-item-name">{item}</span>
                 <span class="shop-item-price">💰 {price} coins</span>
             </div>""", unsafe_allow_html=True)
+            # Count how many of this item already in inventory
+            owned_count = d["inventory"].count(f"FOOD::{item}::{emoji}")
+            if owned_count > 0:
+                st.markdown(f"""
+                <div style="text-align:center; margin-bottom:0.3rem;">
+                    <span style="background:#2a7a2a; color:#fff; font-family:'Cinzel',serif;
+                    font-size:0.65rem; padding:0.2rem 0.7rem; border-radius:10px;
+                    letter-spacing:0.1em;">✓ ×{owned_count} in stash</span>
+                </div>""", unsafe_allow_html=True)
             if st.button("Buy", key=f"f_{item}"):
                 if d["balance"] >= price:
                     log_transaction(f"Bought {item}", -price)
                     d["inventory"].append(f"FOOD::{item}::{emoji}")
                     save_state()
                     check_achievements()
-                    st.toast(f"✦ {item} added to your stash! {emoji}", icon="🛒")
+                    new_count = d["inventory"].count(f"FOOD::{item}::{emoji}")
+                    st.toast(f"✦ {item} added! You now have ×{new_count} in stash {emoji}", icon="🛒")
                     st.rerun()
                 else:
-                    st.error("Not enough coins.")
+                    st.error(f"❌ Need {price - d['balance']} more coins!"))
 
 with tab_virtual:
     for tier, items in VIRTUAL_SHOP.items():
@@ -1055,15 +1065,23 @@ with tab_virtual:
                     <span class="shop-item-name">{item}{'  ✅' if owned else ''}</span>
                     <span class="shop-item-price">💰 {price} coins{owned_txt}</span>
                 </div>""", unsafe_allow_html=True)
+                if owned > 0:
+                    st.markdown(f"""
+                    <div style="text-align:center; margin-bottom:0.3rem;">
+                        <span style="background:#2a5a7a; color:#fff; font-family:'Cinzel',serif;
+                        font-size:0.65rem; padding:0.2rem 0.7rem; border-radius:10px;
+                        letter-spacing:0.1em;">✓ ×{owned} owned</span>
+                    </div>""", unsafe_allow_html=True)
                 if st.button("Acquire", key=f"v_{item}"):
                     if d["balance"] >= price:
                         d["inventory"].append(item)
                         log_transaction(f"Bought {item}", -price)
-                        check_achievements(); st.balloons()
-                        st.success(f"Artifact acquired: {item}! {emoji}")
+                        check_achievements()
+                        st.balloons()
+                        st.toast(f"✦ {item} acquired! {emoji}", icon="🏺")
                         st.rerun()
                     else:
-                        st.error("Not enough coins.")
+                        st.error(f"❌ Need {price - d['balance']} more coins!")
         st.markdown("<br>", unsafe_allow_html=True)
 
 with tab_inv:
@@ -1146,10 +1164,40 @@ with st.expander("⚙️  SECURE ADMINISTRATION — Vault Master Controls"):
     if st.button("⚡ Apply Override"):
         if not reason_txt.strip():
             st.error("A reason is required.")
+        elif correction == 0:
+            st.warning("⚠ Adjustment is 0 — nothing to apply.")
         else:
             log_transaction(f"MANUAL: {reason_txt}", correction)
-            st.success(f"Adjusted by {correction} coins. Logged.")
+            sign = "+" if correction > 0 else ""
+            st.session_state["admin_toast"] = f"{sign}{correction} coins · {reason_txt}"
             st.rerun()
+
+    if "admin_toast" in st.session_state:
+        msg = st.session_state.pop("admin_toast")
+        sign = "+" if not msg.startswith("-") else ""
+        color = "#2a7a2a" if not msg.startswith("-") else "#aa3030"
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #f5ead8, #ede0c4);
+            border: 2px solid {color};
+            border-radius: 6px;
+            padding: 1rem 1.5rem;
+            margin: 0.5rem 0;
+            font-family: 'Cinzel', serif;
+            text-align: center;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        ">
+            <div style="font-size:1.3rem; color:{color}; font-weight:700;">
+                ⚡ Override Applied
+            </div>
+            <div style="font-size:0.9rem; color:#3a2a10; margin-top:0.4rem;">
+                {msg}
+            </div>
+            <div style="font-size:0.8rem; color:#7a6a48; margin-top:0.2rem;">
+                New balance: 💰 {d['balance']} coins
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown('<div class="form-section-head">🔄 Reset Today\'s Log Only</div>', unsafe_allow_html=True)
     st.markdown("<p style='color:#b0a07a;font-size:0.95rem'>Wipes <strong>only today's</strong> daily log entry and its coin/star effects. All previous days and inventory are untouched.</p>", unsafe_allow_html=True)

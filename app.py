@@ -467,7 +467,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 }
 .ledger-row:last-child { border-bottom: none; }
 .ledger-row:hover { background: rgba(201,168,76,0.04); }
-.ledger-cat { color: #b0a07a; flex: 1; }
+ledger-cat { color: #3a2a10; flex: 1; }
 .ledger-pts {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.8rem;

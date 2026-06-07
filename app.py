@@ -373,4 +373,120 @@ for task, pts in tasks.get("Penalties", {}).items():
 # --- MYSTERY SHOP & GACHA ---
 st.markdown("---")
 if 'show_shop' not in st.session_state: st.session_state.show_shop = False
-if st.button("🛒 OPEN RPG SHOP & GACHA", use_container_width
+if st.button("🛒 OPEN RPG SHOP & GACHA", use_container_width=True): st.session_state.show_shop = not st.session_state.show_shop
+
+if st.session_state.show_shop:
+    st.info(f"Balance: **{st.session_state.user_data['balance']} coins**")
+    
+    st.markdown("### 🎲 Mystery Relic Box (Cost: 25 Coins)")
+    if st.button("Roll Mystery Box", type="primary"):
+        if st.session_state.user_data["balance"] >= 25:
+            add_points(-25, "Bought: Mystery Box", bypass_cap=True)
+            roll = random.random()
+            if roll < 0.05: 
+                item = random.choice(VIRTUAL_ITEMS["Legendary"])
+                st.session_state.user_data["inventory"].append(item)
+                st.balloons()
+                st.success(f"🎇 LEGENDARY PULL! You found: {item}")
+            elif roll < 0.20: 
+                item = random.choice(VIRTUAL_ITEMS["Epic"])
+                st.session_state.user_data["inventory"].append(item)
+                st.success(f"✨ EPIC PULL! You found: {item}")
+            elif roll < 0.50: 
+                item = random.choice(VIRTUAL_ITEMS["Rare"])
+                st.session_state.user_data["inventory"].append(item)
+                st.info(f"🔹 Rare Pull. You found: {item}")
+            else: 
+                item = random.choice(VIRTUAL_ITEMS["Common"])
+                st.session_state.user_data["inventory"].append(item)
+                st.write(f"📦 Common Pull. You found: {item}")
+            check_achievements()
+            save_user_data()
+        else: st.warning("Not enough coins.")
+
+    st.markdown("### 🍔 Real Life Rewards")
+    shop_cols = st.columns(3)
+    c_idx = 0
+    for item_name, item_cost in st.session_state.user_data["shop_items"].items():
+        with shop_cols[c_idx % 3]:
+            if st.button(f"{item_name}\n({item_cost})", key=item_name):
+                if st.session_state.user_data["balance"] >= item_cost:
+                    add_points(-item_cost, f"Bought: {item_name}", bypass_cap=True)
+                    st.success(f"Purchased: {item_name}!")
+                else: st.warning("Insufficient coins.")
+        c_idx += 1
+
+    st.markdown("### 👑 Direct Buy: Virtual Relics")
+    v_cols = st.columns(3)
+    v_idx = 0
+    for v_item, v_cost in ITEM_PRICES.items():
+        with v_cols[v_idx % 3]:
+            if st.button(f"Buy {v_item}\n({v_cost})", key=f"v_{v_item}"):
+                if st.session_state.user_data["balance"] >= v_cost:
+                    add_points(-v_cost, f"Bought Relic: {v_item}", bypass_cap=True)
+                    st.session_state.user_data["inventory"].append(v_item)
+                    save_user_data()
+                    st.success(f"Relic Acquired: {v_item}!")
+                else: st.warning("Insufficient coins.")
+        v_idx += 1
+
+st.markdown("---")
+with st.expander("🏆 My Collection & Achievements"):
+    tab_ach, tab_inv = st.tabs(["Achievements", "Virtual Inventory"])
+    with tab_ach:
+        st.write(f"**Unlocked: {len(st.session_state.user_data['unlocked_achievements'])} / {len(ACHIEVEMENTS)}**")
+        for ach, info in ACHIEVEMENTS.items():
+            if ach in st.session_state.user_data["unlocked_achievements"]:
+                st.success(f"✅ **{ach}**: {info['desc']}")
+            else:
+                st.write(f"🔒 **???**: {info['desc']}")
+    with tab_inv:
+        inventory = st.session_state.user_data["inventory"]
+        if len(inventory) == 0: st.write("You have no relics. Buy a Mystery Box!")
+        else:
+            from collections import Counter
+            counts = Counter(inventory)
+            for item, count in counts.items():
+                st.write(f"▪️ {item} (x{count})")
+
+st.markdown("---")
+with st.expander("📝 Point Audit Log (History)"):
+    if len(st.session_state.user_data["history"]) > 0:
+        st.dataframe(pd.DataFrame(st.session_state.user_data["history"]), use_container_width=True, hide_index=True)
+
+# --- SECURE ADMIN PANEL WITH RATE LIMITING ---
+with st.expander("⚙️ Admin & Fixes (Rate Limited)"):
+    tracker = st.session_state.user_data["override_tracker"]
+    
+    st.subheader("Manual Mistake Override")
+    st.write(f"**Daily Limit:** {tracker['daily_count']} / 5")
+    st.write(f"**Monthly Limit:** {tracker['monthly_count']} / 30")
+    
+    if tracker["daily_count"] >= 5:
+        st.error("🛑 You have exhausted your 5 daily override limits. Come back tomorrow.")
+    elif tracker["monthly_count"] >= 30:
+        st.error("🛑 You have exhausted your 30 monthly override limits.")
+    else:
+        correction = st.number_input("Points to Add/Subtract (Max +/- 10)", min_value=-10, max_value=10, value=0, step=1, key="manual_pts")
+        reason = st.text_input("Reason for Override (Required)", placeholder="e.g. Forgot to log morning brush...")
+        
+        if st.button("Apply Manual Override"):
+            if correction == 0:
+                st.warning("Please enter a number other than 0.")
+            elif reason.strip() == "":
+                st.error("A written reason is required to maintain the audit trail.")
+            else:
+                add_points(correction, f"Admin Override: {reason}", bypass_cap=True)
+                st.session_state.user_data["override_tracker"]["daily_count"] += 1
+                st.session_state.user_data["override_tracker"]["monthly_count"] += 1
+                save_user_data()
+                st.success(f"Wallet adjusted by {correction}. Reason logged to audit trail.")
+                st.rerun()
+                
+    st.markdown("---")
+    st.error("🚨 DANGER ZONE")
+    if st.button("Reset My Entire Profile"):
+        st.session_state.user_data = get_default_data()
+        save_user_data()
+        st.warning("Profile reset to zero. Fresh start initialized.")
+        st.rerun()

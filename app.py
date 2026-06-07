@@ -29,9 +29,9 @@ st.markdown("""
 
 *, *::before, *::after { box-sizing: border-box; }
 
-/* ── Background: warm dark parchment ── */
+/* ── Background: warm light parchment ── */
 html, body {
-    background: #1a1610 !important;
+    background: #fdf8f0 !important;
 }
 .stApp,
 [data-testid="stAppViewContainer"],
@@ -39,11 +39,11 @@ html, body {
 [data-testid="stMainBlockContainer"],
 section[data-testid="stSidebar"],
 .main {
-    background: #1a1610 !important;
+    background: #fdf8f0 !important;
     background-image:
-        radial-gradient(ellipse 80% 50% at 20% 10%, rgba(201,168,76,0.06) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 40% at 80% 90%, rgba(120,100,60,0.05) 0%, transparent 60%) !important;
-    color: #e8dfc8;
+        radial-gradient(ellipse 80% 50% at 20% 10%, rgba(201,168,76,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 90%, rgba(180,140,60,0.06) 0%, transparent 60%) !important;
+    color: #2a2010;
     font-family: 'Crimson Pro', Georgia, serif;
 }
 

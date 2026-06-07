@@ -4,6 +4,7 @@ import os
 import random
 import pandas as pd
 import pytz
+import hashlib
 from datetime import datetime, timedelta
 
 # --- MOBILE UI OPTIMIZATION & CONFIG ---
@@ -21,10 +22,17 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 DB_FILE = "database.json"
 CONFIG_FILE = "config.json"
 NEPAL_TZ = pytz.timezone('Asia/Kathmandu')
+ANTI_CHEAT_SALT = "Strict_Audit_2026_Nepal_Secret_Key" # The secret password for the wax seal
 
 def get_nepal_time(): return datetime.now(NEPAL_TZ)
 def get_nepal_date_str(): return str(get_nepal_time().date())
-def get_current_season(): return get_nepal_time().strftime("%Y-%m") # e.g., "2026-06"
+def get_current_season(): return get_nepal_time().strftime("%Y-%m") 
+
+# --- ANTI-CHEAT HASHING ENGINE ---
+def generate_signature(data):
+    """Creates a cryptographic wax seal based on core stats."""
+    raw_string = f"{data.get('balance', 0)}_{data.get('lifetime_exp', 0)}_{data.get('streak', 0)}_{ANTI_CHEAT_SALT}"
+    return hashlib.sha256(raw_string.encode()).hexdigest()
 
 # --- VIRTUAL COLLECTIBLES DICTIONARY ---
 VIRTUAL_ITEMS = {
@@ -43,7 +51,7 @@ ITEM_PRICES = {
 
 # --- DEFAULT DATA SCHEMA ---
 def get_default_data():
-    return {
+    base_data = {
         "balance": 0, 
         "lifetime_exp": 0, 
         "seasonal_exp": 0,
@@ -57,8 +65,14 @@ def get_default_data():
         "screen_time_log": {}, 
         "screen_time_points_awarded": {}, 
         "baseline_screen_time": None, 
-        "inventory": [], # Holds Virtual Collectibles
+        "inventory": [], 
         "unlocked_achievements": [],
+        "tampered": False, # Anti-Cheat Flag
+        "signature": "",   # The saved wax seal
+        "override_tracker": { 
+            "date": get_nepal_date_str(), "daily_count": 0,
+            "month": get_current_season(), "monthly_count": 0
+        },
         "shop_items": { 
             "1x Sausage": 10, "Plate of Momo": 25, "Evening Out": 150, "Guilt-Free YouTube (1hr)": 50, 
             "Cafe Study": 50, "Junk Food": 60, "Chocolate": 60, "New Book or Clothing": 300
@@ -73,6 +87,8 @@ def get_default_data():
             }
         }
     }
+    base_data["signature"] = generate_signature(base_data)
+    return base_data
 
 # --- DATABASE MANAGEMENT ---
 def load_db():
@@ -91,7 +107,7 @@ def load_config():
 def save_config(config):
     with open(CONFIG_FILE, "w") as f: json.dump(config, f)
 
-# --- SESSION INITIALIZATION & SEASONAL RESET ---
+# --- SESSION INITIALIZATION & ANTI-CHEAT CHECK ---
 if 'logged_in' not in st.session_state:
     config = load_config()
     if config["remembered_user"]:
@@ -110,27 +126,42 @@ if st.session_state.logged_in:
     defaults = get_default_data()
     for key in defaults:
         if key not in user_data: user_data[key] = defaults[key]
+        
+    # ANTI-CHEAT VALIDATION
+    if not user_data.get("tampered", False):
+        expected_sig = generate_signature(user_data)
+        saved_sig = user_data.get("signature", "")
+        # Only check if it's not a brand new un-hashed account
+        if saved_sig and saved_sig != expected_sig:
+            user_data["tampered"] = True 
             
-    # Daily Reset
     if user_data.get("daily_tasks_date") != today_str:
         user_data["completed_dailies"] = []
         user_data["daily_tasks_date"] = today_str
     
-    # Seasonal Reset
     if user_data.get("current_season") != current_season:
         user_data["seasonal_exp"] = 0
         user_data["current_season"] = current_season
+        
+    if user_data["override_tracker"].get("date") != today_str:
+        user_data["override_tracker"]["date"] = today_str
+        user_data["override_tracker"]["daily_count"] = 0
+    if user_data["override_tracker"].get("month") != current_season:
+        user_data["override_tracker"]["month"] = current_season
+        user_data["override_tracker"]["monthly_count"] = 0
         
     db["users"][st.session_state.username]["data"] = user_data
     save_db(db)
     st.session_state.user_data = user_data
 
 def save_user_data():
+    # Generate a fresh seal before saving
+    st.session_state.user_data["signature"] = generate_signature(st.session_state.user_data)
     db = load_db()
     db["users"][st.session_state.username]["data"] = st.session_state.user_data
     save_db(db)
 
-# --- RANKING SYSTEM & PROGRESS BAR ---
+# --- RANKING SYSTEM ---
 RANKS = [
     ("Bronze III 🟤", 0, 200), ("Bronze II 🟤", 200, 500), ("Bronze I 🟤", 500, 1000),
     ("Silver III ⚪", 1000, 2000), ("Silver II ⚪", 2000, 3500), ("Silver I ⚪", 3500, 5000),
@@ -139,9 +170,10 @@ RANKS = [
 ]
 
 def get_rank_info(exp):
+    if st.session_state.user_data.get("tampered"): return ("⚠️ DISHONORED (Data Altered) ⚠️", 0, 999999)
     for r in RANKS:
         if exp >= r[1] and exp < r[2]: return r
-    return RANKS[-1] # Diamond Max
+    return RANKS[-1] 
 
 # --- ACHIEVEMENT ENGINE ---
 ACHIEVEMENTS = {
@@ -154,6 +186,7 @@ ACHIEVEMENTS = {
 }
 
 def check_achievements():
+    if st.session_state.user_data.get("tampered"): return # Cheaters get no achievements
     for ach, info in ACHIEVEMENTS.items():
         if ach not in st.session_state.user_data["unlocked_achievements"]:
             if info["req"](st.session_state.user_data):
@@ -190,17 +223,20 @@ if not st.session_state.logged_in:
                 st.success("Account created! You can now log in.")
     st.stop()
 
-# --- CORE LOGIC ENGINE (100 DAILY CAP) ---
+# --- CORE LOGIC ENGINE ---
 def add_points(amount, reason, bypass_cap=False):
+    if st.session_state.user_data.get("tampered"):
+        st.error("SYSTEM LOCKED. Data tampering detected. Profile reset required.")
+        return 0
+
     today_str = get_nepal_date_str()
     if today_str not in st.session_state.user_data["daily_earnings"]:
         st.session_state.user_data["daily_earnings"][today_str] = 0
 
     actual_amount = amount
-
     if amount > 0 and not bypass_cap:
         current_earned = st.session_state.user_data["daily_earnings"].get(today_str, 0)
-        if current_earned >= 100: # INCREASED CAP
+        if current_earned >= 100: 
             st.warning("🛑 Daily limit of 100 points reached!")
             return 0
         elif current_earned + amount > 100:
@@ -234,23 +270,6 @@ def claim_daily(task_name, points):
             if points > 0: st.success(f"Claimed: {task_name} (+{earned} pts)")
             else: st.error(f"Penalty: {task_name} ({points} pts)")
 
-# --- STREAK LOGIC ---
-today_str = get_nepal_date_str()
-last_login_str = st.session_state.user_data["last_login"]
-last_login_date = datetime.strptime(last_login_str, "%Y-%m-%d").date()
-current_date = get_nepal_time().date()
-
-if today_str != last_login_str:
-    if current_date - last_login_date == timedelta(days=1): st.session_state.user_data["streak"] += 1
-    else: st.session_state.user_data["streak"] = 1
-    st.session_state.user_data["last_login"] = today_str
-    save_user_data()
-    check_achievements()
-
-baseline = st.session_state.user_data.get("baseline_screen_time")
-logs = st.session_state.user_data.get("screen_time_log", {})
-avg_screen_time = sum(list(logs.values())[-7:]) / len(list(logs.values())[-7:]) if len(logs) > 0 else (baseline if baseline else 0.0)
-
 # --- UI DASHBOARD HEADER ---
 col_title, col_logout = st.columns([8, 2])
 with col_title:
@@ -262,17 +281,25 @@ with col_logout:
         st.session_state.logged_in = False
         st.rerun()
 
-# Rank & Progress Bar UI
+# TAMPER LOCKOUT UI
+if st.session_state.user_data.get("tampered"):
+    st.error("🚨 CRITICAL ERROR: DATA TAMPERING DETECTED 🚨")
+    st.warning("The cryptographic signature on your save file is broken. Your account is locked. Go to Settings to Reset Your Profile.")
+
 rank_name, rank_min, rank_max = get_rank_info(st.session_state.user_data["lifetime_exp"])
 progress_val = min(1.0, max(0.0, (st.session_state.user_data["lifetime_exp"] - rank_min) / (rank_max - rank_min))) if rank_max < 999999 else 1.0
 
 st.markdown(f"**Rank:** {rank_name} | **Lifetime EXP:** {st.session_state.user_data['lifetime_exp']} / {rank_max if rank_max < 999999 else 'MAX'}")
 st.progress(progress_val)
+current_date = get_nepal_time().date()
 st.caption(f"📅 **Season [{st.session_state.user_data['current_season']}] EXP:** {st.session_state.user_data['seasonal_exp']}  |  ⏳ {(datetime(2026, 12, 1).date() - current_date).days} Days to Dec 1, 2026")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("💰 Coins", f"{st.session_state.user_data['balance']}")
 col2.metric("🔥 Streak", f"{st.session_state.user_data['streak']}")
+baseline = st.session_state.user_data.get("baseline_screen_time")
+logs = st.session_state.user_data.get("screen_time_log", {})
+avg_screen_time = sum(list(logs.values())[-7:]) / len(list(logs.values())[-7:]) if len(logs) > 0 else (baseline if baseline else 0.0)
 col3.metric("📱 Scr Time", f"{avg_screen_time:.1f}h" if baseline else "Setup")
 col4.metric("📈 Today", f"{st.session_state.user_data['daily_earnings'].get(today_str, 0)}/100")
 
@@ -346,91 +373,4 @@ for task, pts in tasks.get("Penalties", {}).items():
 # --- MYSTERY SHOP & GACHA ---
 st.markdown("---")
 if 'show_shop' not in st.session_state: st.session_state.show_shop = False
-if st.button("🛒 OPEN RPG SHOP & GACHA", use_container_width=True): st.session_state.show_shop = not st.session_state.show_shop
-
-if st.session_state.show_shop:
-    st.info(f"Balance: **{st.session_state.user_data['balance']} coins**")
-    
-    # GACHA PULL
-    st.markdown("### 🎲 Mystery Relic Box (Cost: 25 Coins)")
-    if st.button("Roll Mystery Box", type="primary"):
-        if st.session_state.user_data["balance"] >= 25:
-            add_points(-25, "Bought: Mystery Box", bypass_cap=True)
-            roll = random.random()
-            if roll < 0.05: # 5% Legendary
-                item = random.choice(VIRTUAL_ITEMS["Legendary"])
-                st.session_state.user_data["inventory"].append(item)
-                st.balloons()
-                st.success(f"🎇 LEGENDARY PULL! You found: {item}")
-            elif roll < 0.20: # 15% Epic
-                item = random.choice(VIRTUAL_ITEMS["Epic"])
-                st.session_state.user_data["inventory"].append(item)
-                st.success(f"✨ EPIC PULL! You found: {item}")
-            elif roll < 0.50: # 30% Rare
-                item = random.choice(VIRTUAL_ITEMS["Rare"])
-                st.session_state.user_data["inventory"].append(item)
-                st.info(f"🔹 Rare Pull. You found: {item}")
-            else: # 50% Common
-                item = random.choice(VIRTUAL_ITEMS["Common"])
-                st.session_state.user_data["inventory"].append(item)
-                st.write(f"📦 Common Pull. You found: {item}")
-            check_achievements()
-            save_user_data()
-        else: st.warning("Not enough coins.")
-
-    # REAL REWARDS
-    st.markdown("### 🍔 Real Life Rewards")
-    shop_cols = st.columns(3)
-    c_idx = 0
-    for item_name, item_cost in st.session_state.user_data["shop_items"].items():
-        with shop_cols[c_idx % 3]:
-            if st.button(f"{item_name}\n({item_cost})", key=item_name):
-                if st.session_state.user_data["balance"] >= item_cost:
-                    add_points(-item_cost, f"Bought: {item_name}", bypass_cap=True)
-                    st.success(f"Purchased: {item_name}!")
-                else: st.warning("Insufficient coins.")
-        c_idx += 1
-
-    # DIRECT BUY VIRTUAL RELICS
-    st.markdown("### 👑 Direct Buy: Virtual Relics (Extreme Grind)")
-    v_cols = st.columns(3)
-    v_idx = 0
-    for v_item, v_cost in ITEM_PRICES.items():
-        with v_cols[v_idx % 3]:
-            if st.button(f"Buy {v_item}\n({v_cost})", key=f"v_{v_item}"):
-                if st.session_state.user_data["balance"] >= v_cost:
-                    add_points(-v_cost, f"Bought Relic: {v_item}", bypass_cap=True)
-                    st.session_state.user_data["inventory"].append(v_item)
-                    save_user_data()
-                    st.success(f"Relic Acquired: {v_item}!")
-                else: st.warning("Insufficient coins.")
-        v_idx += 1
-
-# --- ACHIEVEMENTS & COLLECTIONS TAB ---
-st.markdown("---")
-with st.expander("🏆 My Collection & Achievements"):
-    tab_ach, tab_inv = st.tabs(["Achievements", "Virtual Inventory"])
-    with tab_ach:
-        st.write(f"**Unlocked: {len(st.session_state.user_data['unlocked_achievements'])} / {len(ACHIEVEMENTS)}**")
-        for ach, info in ACHIEVEMENTS.items():
-            if ach in st.session_state.user_data["unlocked_achievements"]:
-                st.success(f"✅ **{ach}**: {info['desc']}")
-            else:
-                st.write(f"🔒 **???**: {info['desc']}")
-    with tab_inv:
-        inventory = st.session_state.user_data["inventory"]
-        if len(inventory) == 0: st.write("You have no relics. Buy a Mystery Box!")
-        else:
-            # Count items to show multiples
-            from collections import Counter
-            counts = Counter(inventory)
-            for item, count in counts.items():
-                st.write(f"▪️ {item} (x{count})")
-
-# --- ADMIN PANEL ---
-with st.expander("⚙️ Admin & Fixes"):
-    correction = st.number_input("Add/Subtract points manually", value=0, step=1, key="manual_pts")
-    if st.button("Apply Manual Override"):
-        add_points(correction, "Manual Correction", bypass_cap=True)
-        st.success(f"Wallet adjusted by {correction}.")
-        st.rerun()
+if st.button("🛒 OPEN RPG SHOP & GACHA", use_container_width

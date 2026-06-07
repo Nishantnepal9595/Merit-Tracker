@@ -693,7 +693,7 @@ def check_achievements():
     if d["lifetime_exp"] >= 1000:  unlock("Bronze Rank")
     if d["lifetime_exp"] >= 10000: unlock("Gold Rank")
     if d["super_stars"] >= 50:     unlock("Audit Master")
-    food_buys = sum(1 for h in d["history"] if h.get("category","").startswith("Ate "))
+    food_buys = sum(1 for h in d["history"] if h.get("category","").startswith("Bought ") and any(f in h.get("category","") for f in REAL_FOODS.keys()))
     if food_buys >= 3: unlock("Foodie")
     tier3 = {k for v in [VIRTUAL_SHOP["Tier 3 (Rare)"].keys()] for k in v}
     if any(i in tier3 for i in d["inventory"]): unlock("Relic Hunter")
@@ -999,9 +999,11 @@ with tab_food:
             </div>""", unsafe_allow_html=True)
             if st.button("Buy", key=f"f_{item}"):
                 if d["balance"] >= price:
-                    log_transaction(f"Ate {item}", -price)
+                    log_transaction(f"Bought {item}", -price)
+                    d["inventory"].append(f"FOOD::{item}::{emoji}")
+                    save_state()
                     check_achievements()
-                    st.success(f"Enjoy your {item}! {emoji}")
+                    st.success(f"Added {item} {emoji} to inventory!")
                     st.rerun()
                 else:
                     st.error("Not enough coins.")
@@ -1036,11 +1038,52 @@ with tab_inv:
     if not d["inventory"]:
         st.markdown("<p style='color:#6a5a38;font-style:italic;text-align:center;padding:3rem'>Your vault is empty. Start earning!</p>", unsafe_allow_html=True)
     else:
-        counts = Counter(d["inventory"])
-        all_virtual = {k:(e,p) for tier in VIRTUAL_SHOP.values() for k,(e,p) in tier.items()}
-        for item, count in counts.items():
-            emoji = all_virtual.get(item, ("🏺",0))[0]
-            st.markdown(f'<div class="inv-item"><span>{emoji} {item}</span><span class="inv-count">×{count}</span></div>', unsafe_allow_html=True)
+        # Split food vs virtual items
+        food_items   = [i for i in d["inventory"] if i.startswith("FOOD::")]
+        virtual_items = [i for i in d["inventory"] if not i.startswith("FOOD::")]
+
+        # ── Food Stash ──
+        if food_items:
+            st.markdown("<div class='form-section-head'>🍜 Food Stash — Ready to Eat</div>", unsafe_allow_html=True)
+            food_counts = Counter(food_items)
+            all_virtual = {k:(e,p) for tier in VIRTUAL_SHOP.values() for k,(e,p) in tier.items()}
+            for raw_item, count in food_counts.items():
+                parts = raw_item.split("::")
+                name  = parts[1] if len(parts) > 1 else raw_item
+                emoji = parts[2] if len(parts) > 2 else "🍜"
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f'<div class="inv-item"><span>{emoji} {name}</span><span class="inv-count">×{count}</span></div>', unsafe_allow_html=True)
+                with col2:
+                    if st.button(f"Eat 🍽️", key=f"eat_{raw_item}"):
+                        d["inventory"].remove(raw_item)
+                        d["history"].insert(0, {
+                            "date":     get_now().strftime("%Y-%m-%d"),
+                            "time":     get_now().strftime("%H:%M"),
+                            "category": f"🍽️ Ate {name}",
+                            "earned":   0,
+                            "penalty":  0,
+                            "net":      0,
+                            "stars":    0,
+                            "balance":  d["balance"],
+                            "type":     "transaction",
+                        })
+                        save_state()
+                        check_achievements()
+                        st.success(f"Enjoyed your {name}! {emoji} Bon appétit!")
+                        st.rerun()
+
+        # ── Virtual Artifacts ──
+        if virtual_items:
+            st.markdown("<div class='form-section-head'>🏺 Virtual Artifacts</div>", unsafe_allow_html=True)
+            counts = Counter(virtual_items)
+            all_virtual = {k:(e,p) for tier in VIRTUAL_SHOP.values() for k,(e,p) in tier.items()}
+            for item, count in counts.items():
+                emoji = all_virtual.get(item, ("🏺", 0))[0]
+                st.markdown(f'<div class="inv-item"><span>{emoji} {item}</span><span class="inv-count">×{count}</span></div>', unsafe_allow_html=True)
+
+        if not food_items and not virtual_items:
+            st.markdown("<p style='color:#6a5a38;font-style:italic;text-align:center;padding:3rem'>Your vault is empty. Start earning!</p>", unsafe_allow_html=True)
 
 with tab_ach:
     unlocked_set   = set(d["unlocked_achievements"])

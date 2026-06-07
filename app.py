@@ -948,7 +948,7 @@ if submit_log:
         "stars": round(earned_stars, 2),
     }
     st.session_state.form_key += 1
-    st.rerun())
+    st.rerun()
 
 # ============================================================
 # ITEMISED LEDGER  —  grouped by date, each category a row

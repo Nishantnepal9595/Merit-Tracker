@@ -1,492 +1,1115 @@
 import streamlit as st
 import json
 import os
-import random
+import math
+import copy
 import pandas as pd
 import pytz
-import hashlib
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import datetime, timedelta, time
 
-# --- MOBILE UI OPTIMIZATION & CONFIG ---
-st.set_page_config(page_title="Merit Tracker Pro", page_icon="📈", layout="wide")
-hide_st_style = """
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    </style>
-"""
-st.markdown(hide_st_style, unsafe_allow_html=True)
+# ============================================================
+# CONFIG & TIMEZONE
+# ============================================================
+st.set_page_config(page_title="The Personal Vault", page_icon="🛡️", layout="wide")
 
-DB_FILE = "database.json"
-CONFIG_FILE = "config.json"
 NEPAL_TZ = pytz.timezone('Asia/Kathmandu')
-ANTI_CHEAT_SALT = "Strict_Audit_2026_Nepal_Secret_Key" # The secret password for the wax seal
+DB_FILE  = "local_database.json"
 
-def get_nepal_time(): return datetime.now(NEPAL_TZ)
-def get_nepal_date_str(): return str(get_nepal_time().date())
-def get_current_season(): return get_nepal_time().strftime("%Y-%m") 
+def get_now():       return datetime.now(NEPAL_TZ)
+def get_today_str(): return str(get_now().date())
+def is_saturday():   return get_now().weekday() == 5
 
-# --- ANTI-CHEAT HASHING ENGINE ---
-def generate_signature(data):
-    """Creates a cryptographic wax seal based on core stats."""
-    raw_string = f"{data.get('balance', 0)}_{data.get('lifetime_exp', 0)}_{data.get('streak', 0)}_{ANTI_CHEAT_SALT}"
-    return hashlib.sha256(raw_string.encode()).hexdigest()
+# ============================================================
+# MASTER CSS  —  Warm Dark Parchment Theme (readable)
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
-# --- VIRTUAL COLLECTIBLES DICTIONARY ---
-VIRTUAL_ITEMS = {
-    "Common": ["Bronze Study Coin", "Digital Coffee Cup", "Focus Token"],
-    "Rare": ["Silver Calculator", "Audit Ledger Page", "The 5AM Club Badge"],
-    "Epic": ["Golden Gavel", "Einstein's Pen", "The Pomodoro Crown"],
-    "Legendary": ["Diamond Play Button", "The Auditor's Seal", "Aura of Absolute Discipline"]
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ── Background: warm dark parchment ── */
+html, body {
+    background: #1a1610 !important;
+}
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+section[data-testid="stSidebar"],
+.main {
+    background: #1a1610 !important;
+    background-image:
+        radial-gradient(ellipse 80% 50% at 20% 10%, rgba(201,168,76,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 90%, rgba(120,100,60,0.05) 0%, transparent 60%) !important;
+    color: #e8dfc8;
+    font-family: 'Crimson Pro', Georgia, serif;
 }
 
-ITEM_PRICES = {
-    "Bronze Study Coin": 50, "Digital Coffee Cup": 50, "Focus Token": 50,
-    "Silver Calculator": 200, "Audit Ledger Page": 200, "The 5AM Club Badge": 200,
-    "Golden Gavel": 1000, "Einstein's Pen": 1000, "The Pomodoro Crown": 1000,
-    "Diamond Play Button": 5000, "The Auditor's Seal": 5000, "Aura of Absolute Discipline": 5000
+#MainMenu, footer, header, .stDeployButton { visibility: hidden !important; }
+.block-container { padding: 1.5rem 2.5rem 4rem !important; max-width: 1400px !important; }
+
+/* ── Body text — bright enough to actually read ── */
+.stMarkdown p, .stMarkdown li {
+    font-family: 'Crimson Pro', serif;
+    font-size: 1.05rem;
+    line-height: 1.75;
+    color: #ddd0aa;
+}
+h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #e8d48a !important; }
+
+/* ── Hero ── */
+.vault-hero {
+    text-align: center;
+    padding: 2.5rem 2rem 1.8rem;
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+.vault-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 320px; height: 1px;
+    background: linear-gradient(90deg, transparent, #c9a84c, transparent);
+}
+.vault-hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 520px; height: 1px;
+    background: linear-gradient(90deg, transparent, #c9a84c66, transparent);
+}
+.vault-title {
+    font-family: 'Cinzel', serif;
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    background: linear-gradient(135deg, #f5e17a 0%, #c9a84c 40%, #e8c96a 70%, #b08830 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0; line-height: 1.1;
+}
+.vault-subtitle {
+    font-family: 'Crimson Pro', serif;
+    font-style: italic;
+    font-size: 1.1rem;
+    color: #9a8a62;
+    letter-spacing: 0.2em;
+    margin-top: 0.4rem;
+}
+.vault-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    color: #7a6e52;
+    letter-spacing: 0.15em;
+    margin-top: 0.7rem;
+    text-transform: uppercase;
 }
 
-# --- DEFAULT DATA SCHEMA ---
+/* ── Stat Cards ── */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+}
+.stat-card {
+    background: linear-gradient(135deg, #221e16 0%, #2a2418 100%);
+    border: 1px solid #3a3020;
+    border-top: 2px solid var(--accent, #c9a84c);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem 1rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(201,168,76,0.12);
+}
+.stat-icon { font-size: 1.5rem; margin-bottom: 0.3rem; display: block; }
+.stat-label {
+    font-family: 'Cinzel', serif;
+    font-size: 0.58rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #7a6e52;
+    margin-bottom: 0.2rem;
+}
+.stat-value {
+    font-family: 'Cinzel', serif;
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--accent, #c9a84c);
+    line-height: 1;
+}
+.stat-sub {
+    font-family: 'Crimson Pro', serif;
+    font-size: 0.82rem;
+    color: #6a5f45;
+    margin-top: 0.2rem;
+    font-style: italic;
+}
+
+/* ── Section Dividers ── */
+.section-divider {
+    display: flex; align-items: center; gap: 1rem;
+    margin: 2rem 0 1.5rem;
+}
+.section-divider::before, .section-divider::after {
+    content: ''; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, #4a3e28, #4a3e28, transparent);
+}
+.section-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.68rem;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: #c9a84c;
+    white-space: nowrap;
+}
+
+/* ── Form styling ── */
+.stForm {
+    background: linear-gradient(160deg, #1e1a12 0%, #241f14 100%) !important;
+    border: 1px solid #3a3020 !important;
+    border-radius: 6px !important;
+    padding: 1.5rem !important;
+}
+.form-section-head {
+    font-family: 'Cinzel', serif;
+    font-size: 0.63rem;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: #c9a84c;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #3a3020;
+    margin: 1.5rem 0 1rem;
+}
+
+/* ── Inputs ── */
+.stNumberInput input, .stTextInput input, .stTimeInput input {
+    background: #141008 !important;
+    border: 1px solid #3a3020 !important;
+    border-radius: 3px !important;
+    color: #e0d0a8 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.9rem !important;
+}
+.stNumberInput input:focus, .stTextInput input:focus {
+    border-color: #c9a84c !important;
+    box-shadow: 0 0 0 2px rgba(201,168,76,0.2) !important;
+}
+.stCheckbox label {
+    color: #d4c49a !important;
+    font-family: 'Crimson Pro', serif !important;
+    font-size: 1.02rem !important;
+}
+
+/* ── Label text ── */
+.stSelectbox label, .stNumberInput label, .stTextInput label,
+.stTimeInput label, div[data-testid="stWidgetLabel"] p {
+    font-family: 'Crimson Pro', serif !important;
+    font-size: 0.97rem !important;
+    color: #b0a07a !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg, #282010 0%, #332a12 100%) !important;
+    border: 1px solid #5a4a28 !important;
+    border-radius: 3px !important;
+    color: #d4b86a !important;
+    font-family: 'Cinzel', serif !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.15em !important;
+    text-transform: uppercase !important;
+    padding: 0.6rem 1rem !important;
+    transition: all 0.2s ease !important;
+    width: 100% !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(135deg, #3a2e18 0%, #4a3a1a 100%) !important;
+    border-color: #c9a84c !important;
+    box-shadow: 0 0 18px rgba(201,168,76,0.18) !important;
+    color: #f0dc88 !important;
+    transform: translateY(-1px) !important;
+}
+[data-testid="stFormSubmitButton"] > button {
+    background: linear-gradient(135deg, #302412 0%, #45350e 50%, #302412 100%) !important;
+    border: 1px solid #c9a84c !important;
+    color: #f5e17a !important;
+    font-size: 0.82rem !important;
+    padding: 0.8rem 2rem !important;
+    letter-spacing: 0.25em !important;
+    box-shadow: 0 0 25px rgba(201,168,76,0.12) !important;
+    margin-top: 1rem !important;
+}
+[data-testid="stFormSubmitButton"] > button:hover {
+    background: linear-gradient(135deg, #45350e 0%, #60480f 50%, #45350e 100%) !important;
+    box-shadow: 0 0 35px rgba(201,168,76,0.22) !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent !important;
+    border-bottom: 1px solid #3a3020 !important;
+    gap: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    border: none !important;
+    color: #7a6a48 !important;
+    font-family: 'Cinzel', serif !important;
+    font-size: 0.68rem !important;
+    letter-spacing: 0.18em !important;
+    text-transform: uppercase !important;
+    padding: 0.8rem 1.4rem !important;
+    border-bottom: 2px solid transparent !important;
+    transition: all 0.2s !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #c9a84c !important;
+    border-bottom: 2px solid #c9a84c !important;
+}
+.stTabs [data-baseweb="tab"]:hover { color: #a08840 !important; }
+.stTabs [data-baseweb="tab-panel"] { background: transparent !important; padding: 1.5rem 0 !important; }
+
+/* ── Expander ── */
+.stExpander {
+    background: #1e1a12 !important;
+    border: 1px solid #3a3020 !important;
+    border-radius: 4px !important;
+}
+.stExpander summary { color: #9a8a62 !important; font-family: 'Cinzel', serif !important; font-size: 0.73rem !important; letter-spacing: 0.18em !important; }
+
+/* ── Metric containers ── */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, #221e16 0%, #2a2418 100%) !important;
+    border: 1px solid #3a3020 !important;
+    border-top: 2px solid #c9a84c !important;
+    border-radius: 4px !important;
+    padding: 1rem !important;
+}
+[data-testid="stMetricLabel"] { font-family: 'Cinzel', serif !important; font-size: 0.58rem !important; letter-spacing: 0.2em !important; color: #7a6a48 !important; }
+[data-testid="stMetricValue"] { font-family: 'Cinzel', serif !important; font-size: 1.5rem !important; color: #c9a84c !important; }
+
+/* ── Alert boxes ── */
+.stInfo {
+    background: rgba(201,168,76,0.07) !important;
+    border: 1px solid #4a3e28 !important;
+    border-left: 3px solid #c9a84c !important;
+    color: #cfc090 !important;
+    font-family: 'Crimson Pro', serif !important;
+    font-size: 1rem !important;
+}
+.stSuccess {
+    background: rgba(80,160,80,0.1) !important;
+    border: 1px solid #2a4a2a !important;
+    border-left: 3px solid #5aaa5a !important;
+    color: #9ada9a !important;
+    font-family: 'Crimson Pro', serif !important;
+}
+.stError {
+    background: rgba(200,70,70,0.1) !important;
+    border: 1px solid #4a2020 !important;
+    border-left: 3px solid #aa4a4a !important;
+    color: #d49090 !important;
+    font-family: 'Crimson Pro', serif !important;
+}
+.stWarning {
+    background: rgba(200,150,40,0.1) !important;
+    border: 1px solid #4a3010 !important;
+    border-left: 3px solid #aa8030 !important;
+    color: #d4b070 !important;
+    font-family: 'Crimson Pro', serif !important;
+}
+
+/* ── Dataframe / Ledger ── */
+.stDataFrame { border: 1px solid #3a3020 !important; border-radius: 4px !important; }
+[data-testid="stDataFrame"] th {
+    background: #221e16 !important;
+    font-family: 'Cinzel', serif !important;
+    font-size: 0.63rem !important;
+    letter-spacing: 0.12em !important;
+    color: #9a8a62 !important;
+    border-bottom: 1px solid #3a3020 !important;
+}
+[data-testid="stDataFrame"] td {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.8rem !important;
+    color: #d4c49a !important;
+    background: #1a1610 !important;
+}
+
+/* ── Shop item cards ── */
+.shop-item {
+    background: linear-gradient(160deg, #221e14, #2a2418);
+    border: 1px solid #3a3020;
+    border-radius: 6px;
+    padding: 1rem 0.8rem 0.7rem;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s;
+}
+.shop-item:hover { border-color: #6a5828; box-shadow: 0 4px 18px rgba(201,168,76,0.12); }
+.shop-item-emoji { font-size: 2rem; display: block; margin-bottom: 0.35rem; line-height: 1; }
+.shop-item-name {
+    font-family: 'Crimson Pro', serif;
+    font-size: 0.95rem;
+    color: #d4c49a;
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+}
+.shop-item-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #c9a84c;
+}
+
+/* ── Tier badges ── */
+.tier-badge {
+    display: inline-block;
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.8rem;
+    border-radius: 2px;
+    margin-bottom: 1rem;
+}
+.tier-1 { background: rgba(180,120,60,0.18); color: #c8906a; border: 1px solid #4a3020; }
+.tier-2 { background: rgba(200,200,200,0.1);  color: #b0b0b0; border: 1px solid #404040; }
+.tier-3 { background: rgba(60,200,110,0.1);   color: #60c880; border: 1px solid #1a4a28; }
+.tier-4 { background: rgba(140,80,220,0.12);  color: #9860d0; border: 1px solid #30185a; }
+.tier-5 { background: rgba(255,210,40,0.14);  color: #f5ca38; border: 1px solid #4a3a08; }
+
+/* ── Achievement cards ── */
+.ach-card {
+    display: flex; align-items: flex-start; gap: 0.8rem;
+    padding: 0.9rem 1rem;
+    background: #1e1a12;
+    border: 1px solid #2a2418;
+    border-radius: 5px;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s;
+}
+.ach-card.unlocked { border-color: #4a3e24; background: linear-gradient(135deg, #221e12, #2a2416); }
+.ach-card.unlocked:hover { border-color: #c9a84c; box-shadow: 0 2px 14px rgba(201,168,76,0.1); }
+.ach-icon { font-size: 1.4rem; min-width: 2rem; }
+.ach-name { font-family: 'Cinzel', serif; font-size: 0.72rem; letter-spacing: 0.1em; color: #6a5a38; display: block; margin-bottom: 0.15rem; }
+.ach-card.unlocked .ach-name { color: #c9a84c; }
+.ach-desc { font-family: 'Crimson Pro', serif; font-style: italic; font-size: 0.88rem; color: #5a5038; }
+.ach-card.unlocked .ach-desc { color: #9a8a62; }
+
+/* ── Inventory items ── */
+.inv-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.7rem 1rem;
+    background: #1e1a12;
+    border: 1px solid #2a2418;
+    border-left: 3px solid #c9a84c;
+    border-radius: 3px;
+    margin-bottom: 0.4rem;
+    font-family: 'Crimson Pro', serif;
+    color: #d4c49a;
+    font-size: 1rem;
+}
+.inv-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    background: rgba(201,168,76,0.12);
+    color: #c9a84c;
+    padding: 0.15rem 0.5rem;
+    border-radius: 2px;
+}
+
+/* ── Ledger line items ── */
+.ledger-group {
+    border: 1px solid #3a3020;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.ledger-group-header {
+    background: linear-gradient(135deg, #2a2418, #322c1c);
+    padding: 0.6rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #3a3020;
+}
+.ledger-group-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: #9a8a62;
+    letter-spacing: 0.1em;
+}
+.ledger-group-net {
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+.ledger-group-net.pos { color: #6ac878; }
+.ledger-group-net.neg { color: #d47070; }
+.ledger-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.45rem 1rem 0.45rem 1.4rem;
+    border-bottom: 1px solid #272015;
+    font-family: 'Crimson Pro', serif;
+    font-size: 0.95rem;
+}
+.ledger-row:last-child { border-bottom: none; }
+.ledger-row:hover { background: rgba(201,168,76,0.04); }
+.ledger-cat { color: #b0a07a; flex: 1; }
+.ledger-pts {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 64px;
+    text-align: right;
+}
+.ledger-pts.earn  { color: #6ac878; }
+.ledger-pts.pen   { color: #d47070; }
+.ledger-pts.zero  { color: #5a5038; }
+.ledger-pts.stars { color: #f5d060; }
+.ledger-balance-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 1rem;
+    background: #221e12;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #7a6a48;
+}
+.ledger-balance-val { color: #c9a84c; font-weight: 600; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1610; }
+::-webkit-scrollbar-thumb { background: #3a3020; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #5a4a28; }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# STATIC DATA
+# ============================================================
+REAL_FOODS = {
+    "Wai Wai / Chatpate":    ("🍜", 15),
+    "Samosa / Patties":      ("🥟", 20),
+    "Plate of Momo":         ("🥣", 40),
+    "Sausage":               ("🌭", 20),
+    "Chowmein":              ("🍝", 50),
+    "Junk Food / Chips":     ("🍟", 30),
+    "Chocolate Bar":         ("🍫", 30),
+    "Cold Coffee / Milkshake":("☕", 80),
+    "Burger":                ("🍔", 120),
+    "Pizza":                 ("🍕", 250),
+    "Evening Out":           ("🌙", 400),
+}
+
+VIRTUAL_SHOP = {
+    "Tier 1 (Cheap)": {
+        "Wooden Desk Token":  ("🪵", 10),
+        "Copper Calculator":  ("🔢", 25),
+        "Paper Crown":        ("📄", 50),
+    },
+    "Tier 2 (Common)": {
+        "Bronze Study Lamp":  ("🪔", 100),
+        "Silver Bookmark":    ("🔖", 150),
+        "Focus Potion":       ("🧪", 200),
+    },
+    "Tier 3 (Rare)": {
+        "Golden Ledger":      ("📒", 500),
+        "Emerald Highlighter":("💚", 750),
+        "The 5AM Shield":     ("🛡️", 1000),
+    },
+    "Tier 4 (Epic)": {
+        "Platinum Gavel":     ("⚖️", 2500),
+        "Diamond Abacus":     ("💎", 3500),
+        "Aura of Silence":    ("🧘", 5000),
+    },
+    "Tier 5 (Legendary)": {
+        "The Auditor's Seal": ("🏛️", 7500),
+        "Crown of the Grand Auditor": ("👑", 10000),
+    },
+}
+
+TIER_CSS  = {"Tier 1 (Cheap)":"tier-1","Tier 2 (Common)":"tier-2","Tier 3 (Rare)":"tier-3","Tier 4 (Epic)":"tier-4","Tier 5 (Legendary)":"tier-5"}
+TIER_ICONS= {"Tier 1 (Cheap)":"🪵","Tier 2 (Common)":"🥉","Tier 3 (Rare)":"💚","Tier 4 (Epic)":"💜","Tier 5 (Legendary)":"👑"}
+
+ACHIEVEMENTS = {
+    "Day One":          ("📜","Fill your first daily log."),
+    "First Star":       ("⭐","Earn your first Super Star."),
+    "Bookworm":         ("📚","Study for 5 hours in a day."),
+    "Saturday Scholar": ("🎓","Study for 8 hours on a Saturday."),
+    "Silent Monk":      ("🧘","Claim the Silence point 5 times."),
+    "Early Riser":      ("🌅","Wake up before 5:30 AM 3 times."),
+    "Clean Freak":      ("🧹","Maintain the room and bath routine for a week."),
+    "Digital Detox":    ("📵","Use mobile for under 3 hours."),
+    "Foodie":           ("🍜","Buy 3 real-life food items."),
+    "Relic Hunter":     ("🏺","Buy a Tier 3 Virtual Item."),
+    "Bronze Rank":      ("🥉","Reach 1,000 EXP."),
+    "Gold Rank":        ("🥇","Reach 10,000 EXP."),
+    "Audit Master":     ("💫","Earn 50 Super Stars."),
+}
+
+# ============================================================
+# DATABASE
+# ============================================================
 def get_default_data():
-    base_data = {
-        "balance": 0, 
-        "lifetime_exp": 0, 
-        "seasonal_exp": 0,
-        "current_season": get_current_season(),
-        "streak": 0, 
-        "last_login": str(get_nepal_time().date() - timedelta(days=1)),
-        "daily_tasks_date": get_nepal_date_str(),
-        "completed_dailies": [],
-        "history": [], 
-        "daily_earnings": {}, 
-        "screen_time_log": {}, 
-        "screen_time_points_awarded": {}, 
-        "baseline_screen_time": None, 
-        "inventory": [], 
-        "unlocked_achievements": [],
-        "tampered": False, # Anti-Cheat Flag
-        "signature": "",   # The saved wax seal
-        "override_tracker": { 
-            "date": get_nepal_date_str(), "daily_count": 0,
-            "month": get_current_season(), "monthly_count": 0
-        },
-        "shop_items": { 
-            "1x Sausage": 10, "Plate of Momo": 25, "Evening Out": 150, "Guilt-Free YouTube (1hr)": 50, 
-            "Cafe Study": 50, "Junk Food": 60, "Chocolate": 60, "New Book or Clothing": 300
-        },
-        "custom_tasks": { 
-            "Morning": {"Woke up BEFORE 5:30 AM": 2, "Morning Brush": 1, "Took a Bath": 2},
-            "Evening": {"Dinner at home": 2, "Evening Brush": 1, "Sleep by 10 PM": 2},
-            "Chores": {"Chores / Laundry": 3},
-            "Penalties": {
-                "Sleep after 10:30 PM": -5, "Woke up AFTER 6:00 AM": -1, "No Bath for 2 Days": -5, 
-                "Phone in bed": -3, "Phone face-up on desk": -2, "TikTok/Shorts > 30 mins": -3, "Screen meal": -1
-            }
-        }
+    today = get_today_str()
+    return {
+        "admin_password": "admin",
+        "balance": 0, "lifetime_exp": 0, "super_stars": 0, "streak": 0,
+        "last_login": str(get_now().date() - timedelta(days=1)),
+        "daily_logs": {}, "history": [], "inventory": [], "unlocked_achievements": [],
+        "split_tasks": {"Bath": today, "Clean Room": today, "Laundry": today},
     }
-    base_data["signature"] = generate_signature(base_data)
-    return base_data
 
-# --- DATABASE MANAGEMENT ---
 def load_db():
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f: return json.load(f)
-    return {"users": {}}
+        with open(DB_FILE, "r") as f: data = json.load(f)
+        data.setdefault("admin_password", "admin")
+        data.setdefault("split_tasks", {"Bath": get_today_str(), "Clean Room": get_today_str(), "Laundry": get_today_str()})
+        data.setdefault("unlocked_achievements", [])
+        data.setdefault("inventory", [])
+        # Backfill missing keys on old history entries
+        for entry in data.get("history", []):
+            entry.setdefault("net", entry.get("earned", 0) - entry.get("penalty", 0))
+            entry.setdefault("earned", 0)
+            entry.setdefault("penalty", 0)
+            entry.setdefault("stars", 0)
+            entry.setdefault("balance", 0)
+            entry.setdefault("type", "transaction")
+        return data
+    return get_default_data()
 
-def save_db(db):
-    with open(DB_FILE, "w") as f: json.dump(db, f)
+def save_db(data):
+    with open(DB_FILE, "w") as f: json.dump(data, f)
 
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f: return json.load(f)
-    return {"remembered_user": None}
+if "user_data" not in st.session_state:
+    st.session_state.user_data = load_db()
+d = st.session_state.user_data
+def save_state(): save_db(st.session_state.user_data)
 
-def save_config(config):
-    with open(CONFIG_FILE, "w") as f: json.dump(config, f)
+# ============================================================
+# LEDGER  —  itemised per category
+# ============================================================
+def log_transaction(action: str, coins: int, stars: float = 0):
+    """General ledger entry (shop purchases, manual adjustments)."""
+    d["balance"]     += coins
+    d["super_stars"] += stars
+    if coins > 0: d["lifetime_exp"] += coins
+    d["history"].insert(0, {
+        "date":    get_now().strftime("%Y-%m-%d"),
+        "time":    get_now().strftime("%H:%M"),
+        "category": action,
+        "earned":  coins if coins > 0 else 0,
+        "penalty": abs(coins) if coins < 0 else 0,
+        "net":     coins,
+        "stars":   stars,
+        "balance": d["balance"],
+        "type":    "transaction",
+    })
+    save_state()
 
-# --- SESSION INITIALIZATION & ANTI-CHEAT CHECK ---
-if 'logged_in' not in st.session_state:
-    config = load_config()
-    if config["remembered_user"]:
-        st.session_state.logged_in = True
-        st.session_state.username = config["remembered_user"]
-    else:
-        st.session_state.logged_in = False
-        st.session_state.username = None
+def log_daily_breakdown(date_str: str, breakdown: list, net: int, stars: float, balance_after: int):
+    """
+    breakdown = list of {"category": str, "earned": int, "penalty": int}
+    Inserts each line into history so the ledger shows every item.
+    """
+    time_str = get_now().strftime("%H:%M")
+    entries = []
+    running = balance_after - net
+    for item in breakdown:
+        item_net   = item["earned"] - item["penalty"]
+        running   += item_net
+        entries.append({
+            "date":     date_str,
+            "time":     time_str,
+            "category": item["category"],
+            "earned":   item["earned"],
+            "penalty":  item["penalty"],
+            "net":      item_net,
+            "stars":    item.get("stars", 0),
+            "balance":  running,
+            "type":     "daily_item",
+            "log_date": date_str,
+        })
+    entries.insert(0, {
+        "date": date_str, "time": time_str,
+        "category": f"── Daily Log: {date_str} ──",
+        "earned": 0, "penalty": 0, "net": net,
+        "stars": stars, "balance": balance_after,
+        "type": "daily_header", "log_date": date_str,
+    })
+    for e in reversed(entries):
+        d["history"].insert(0, e)
+    save_state()
 
-if st.session_state.logged_in:
-    db = load_db()
-    today_str = get_nepal_date_str()
-    current_season = get_current_season()
-    user_data = db["users"][st.session_state.username]["data"]
-    
-    defaults = get_default_data()
-    for key in defaults:
-        if key not in user_data: user_data[key] = defaults[key]
-        
-    # ANTI-CHEAT VALIDATION
-    if not user_data.get("tampered", False):
-        expected_sig = generate_signature(user_data)
-        saved_sig = user_data.get("signature", "")
-        # Only check if it's not a brand new un-hashed account
-        if saved_sig and saved_sig != expected_sig:
-            user_data["tampered"] = True 
-            
-    if user_data.get("daily_tasks_date") != today_str:
-        user_data["completed_dailies"] = []
-        user_data["daily_tasks_date"] = today_str
-    
-    if user_data.get("current_season") != current_season:
-        user_data["seasonal_exp"] = 0
-        user_data["current_season"] = current_season
-        
-    if user_data["override_tracker"].get("date") != today_str:
-        user_data["override_tracker"]["date"] = today_str
-        user_data["override_tracker"]["daily_count"] = 0
-    if user_data["override_tracker"].get("month") != current_season:
-        user_data["override_tracker"]["month"] = current_season
-        user_data["override_tracker"]["monthly_count"] = 0
-        
-    db["users"][st.session_state.username]["data"] = user_data
-    save_db(db)
-    st.session_state.user_data = user_data
+def remove_today_history(date_str: str):
+    """Remove all history rows belonging to today's log so resubmit is clean."""
+    d["history"] = [h for h in d["history"] if h.get("log_date") != date_str]
 
-def save_user_data():
-    # Generate a fresh seal before saving
-    st.session_state.user_data["signature"] = generate_signature(st.session_state.user_data)
-    db = load_db()
-    db["users"][st.session_state.username]["data"] = st.session_state.user_data
-    save_db(db)
+# ============================================================
+# RANK & HELPERS
+# ============================================================
+def get_rank(exp):
+    if   exp >= 25000: return ("Ascendant Auditor","👑")
+    elif exp >= 10000: return ("Grandmaster","💎")
+    elif exp >= 5000:  return ("Expert","🟡")
+    elif exp >= 1000:  return ("Professional","⚪")
+    elif exp >= 250:   return ("Apprentice","🟤")
+    else:              return ("Novice","📝")
 
-# --- RANKING SYSTEM ---
-RANKS = [
-    ("Bronze III 🟤", 0, 200), ("Bronze II 🟤", 200, 500), ("Bronze I 🟤", 500, 1000),
-    ("Silver III ⚪", 1000, 2000), ("Silver II ⚪", 2000, 3500), ("Silver I ⚪", 3500, 5000),
-    ("Gold III 🟡", 5000, 7500), ("Gold II 🟡", 7500, 10000), ("Gold I 🟡", 10000, 15000),
-    ("Diamond 💎", 15000, 999999)
-]
+def get_task_status(task_name, grace_days):
+    last_date  = datetime.strptime(d["split_tasks"][task_name], "%Y-%m-%d").date()
+    days_left  = ((last_date + timedelta(days=grace_days)) - get_now().date()).days
+    if   days_left > 0:  return ("ok",      f"✦ Last done: {last_date} · Due in {days_left} day(s)")
+    elif days_left == 0: return ("warn",    f"⚑ Last done: {last_date} · Due TODAY")
+    else:                return ("overdue", f"✖ Was due {-days_left} day(s) ago — Penalty incoming!")
 
-def get_rank_info(exp):
-    if st.session_state.user_data.get("tampered"): return ("⚠️ DISHONORED (Data Altered) ⚠️", 0, 999999)
-    for r in RANKS:
-        if exp >= r[1] and exp < r[2]: return r
-    return RANKS[-1] 
-
-# --- ACHIEVEMENT ENGINE ---
-ACHIEVEMENTS = {
-    "First Blood": {"desc": "Earn your first points", "req": lambda d: d["lifetime_exp"] > 0},
-    "Consistent Cadet": {"desc": "Hit a 3-day streak", "req": lambda d: d["streak"] >= 3},
-    "Iron Will": {"desc": "Hit a 7-day streak", "req": lambda d: d["streak"] >= 7},
-    "Centurion": {"desc": "Earn 100 points in a single day", "req": lambda d: d["daily_earnings"].get(get_nepal_date_str(), 0) >= 100},
-    "Collector": {"desc": "Find your first Virtual Relic", "req": lambda d: len(d["inventory"]) > 0},
-    "Audit Manager": {"desc": "Reach 5,000 Lifetime EXP", "req": lambda d: d["lifetime_exp"] >= 5000}
-}
-
+# ============================================================
+# ACHIEVEMENT ENGINE
+# ============================================================
 def check_achievements():
-    if st.session_state.user_data.get("tampered"): return # Cheaters get no achievements
-    for ach, info in ACHIEVEMENTS.items():
-        if ach not in st.session_state.user_data["unlocked_achievements"]:
-            if info["req"](st.session_state.user_data):
-                st.session_state.user_data["unlocked_achievements"].append(ach)
-                st.toast(f"🏆 ACHIEVEMENT UNLOCKED: {ach}!")
-                save_user_data()
+    unlocked = d["unlocked_achievements"]
+    def unlock(name):
+        if name not in unlocked:
+            unlocked.append(name)
+            st.toast(f"{ACHIEVEMENTS[name][0]} Achievement Unlocked: {name}!")
+    if len(d["daily_logs"]) > 0:   unlock("Day One")
+    if d["super_stars"] >= 1:      unlock("First Star")
+    if d["lifetime_exp"] >= 1000:  unlock("Bronze Rank")
+    if d["lifetime_exp"] >= 10000: unlock("Gold Rank")
+    if d["super_stars"] >= 50:     unlock("Audit Master")
+    food_buys = sum(1 for h in d["history"] if h.get("category","").startswith("Ate "))
+    if food_buys >= 3: unlock("Foodie")
+    tier3 = {k for v in [VIRTUAL_SHOP["Tier 3 (Rare)"].keys()] for k in v}
+    if any(i in tier3 for i in d["inventory"]): unlock("Relic Hunter")
+    save_state()
 
-# --- AUTH UI ---
-if not st.session_state.logged_in:
-    st.title("🛡️ Merit Tracker RPG")
-    tab1, tab2 = st.tabs(["Log In", "Create Account"])
-    with tab1:
-        login_user = st.text_input("Username", key="log_user")
-        login_pass = st.text_input("Password", type="password", key="log_pass")
-        remember = st.checkbox("Remember this device")
-        if st.button("Log In", use_container_width=True):
-            db = load_db()
-            if login_user in db["users"] and db["users"][login_user]["password"] == login_pass:
-                if remember: save_config({"remembered_user": login_user})
-                st.session_state.logged_in = True
-                st.session_state.username = login_user
-                st.rerun()
-            else: st.error("Invalid credentials.")
-    with tab2:
-        reg_user = st.text_input("Choose Username", key="reg_user")
-        reg_pass = st.text_input("Choose Password", type="password", key="reg_pass")
-        if st.button("Create Account", use_container_width=True):
-            db = load_db()
-            if reg_user in db["users"]: st.error("Username exists!")
-            elif reg_user == "" or reg_pass == "": st.error("Fields cannot be empty.")
-            else:
-                db["users"][reg_user] = {"password": reg_pass, "data": get_default_data()}
-                save_db(db)
-                st.success("Account created! You can now log in.")
-    st.stop()
+# ============================================================
+# HERO HEADER
+# ============================================================
+now = get_now()
+rank_name, rank_icon = get_rank(d["lifetime_exp"])
 
-# --- CORE LOGIC ENGINE ---
-def add_points(amount, reason, bypass_cap=False):
-    if st.session_state.user_data.get("tampered"):
-        st.error("SYSTEM LOCKED. Data tampering detected. Profile reset required.")
-        return 0
+st.markdown(f"""
+<div class="vault-hero">
+    <div class="vault-title">⚔ THE PERSONAL VAULT ⚔</div>
+    <div class="vault-subtitle">Chronicle of Merit &amp; Discipline</div>
+    <div class="vault-time">{now.strftime('%A, %B %d, %Y  ·  %I:%M %p')}  ·  Kathmandu, Nepal</div>
+</div>
+""", unsafe_allow_html=True)
 
-    today_str = get_nepal_date_str()
-    if today_str not in st.session_state.user_data["daily_earnings"]:
-        st.session_state.user_data["daily_earnings"][today_str] = 0
+st.markdown(f"""
+<div class="stat-grid">
+    <div class="stat-card" style="--accent:#c9a84c">
+        <span class="stat-icon">💰</span>
+        <div class="stat-label">Coin Balance</div>
+        <div class="stat-value">{d['balance']}</div>
+        <div class="stat-sub">spending power</div>
+    </div>
+    <div class="stat-card" style="--accent:#88ccff">
+        <span class="stat-icon">🌟</span>
+        <div class="stat-label">Super Stars</div>
+        <div class="stat-value">{round(d['super_stars'], 1)}</div>
+        <div class="stat-sub">mastery tokens</div>
+    </div>
+    <div class="stat-card" style="--accent:#c8a0e8">
+        <span class="stat-icon">{rank_icon}</span>
+        <div class="stat-label">Current Rank</div>
+        <div class="stat-value" style="font-size:1.05rem;padding-top:0.3rem">{rank_name}</div>
+        <div class="stat-sub">{d['lifetime_exp']} lifetime EXP</div>
+    </div>
+    <div class="stat-card" style="--accent:#f09070">
+        <span class="stat-icon">🔥</span>
+        <div class="stat-label">Streak</div>
+        <div class="stat-value">{d['streak']}</div>
+        <div class="stat-sub">consecutive days</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-    actual_amount = amount
-    if amount > 0 and not bypass_cap:
-        current_earned = st.session_state.user_data["daily_earnings"].get(today_str, 0)
-        if current_earned >= 100: 
-            st.warning("🛑 Daily limit of 100 points reached!")
-            return 0
-        elif current_earned + amount > 100:
-            actual_amount = 100 - current_earned
-            st.warning(f"⚠️ Daily limit approaching! Only added {actual_amount} points.")
-        st.session_state.user_data["daily_earnings"][today_str] += actual_amount
-        st.session_state.user_data["lifetime_exp"] += actual_amount 
-        st.session_state.user_data["seasonal_exp"] += actual_amount
-    elif amount < 0:
-        current_earned = st.session_state.user_data["daily_earnings"].get(today_str, 0)
-        st.session_state.user_data["daily_earnings"][today_str] = max(0, current_earned + amount)
+# ============================================================
+# TUTORIAL
+# ============================================================
+with st.expander("📖  CODEX — Rules & Scoring System"):
+    st.markdown("""
+### Study Engine
+- **3 pts per hour** of study.
+- **Super Stars** for every hour *beyond* 5 hrs (weekdays) or 8 hrs (Saturdays).
 
-    st.session_state.user_data["balance"] += actual_amount
-    
-    if actual_amount != 0:
-        now = get_nepal_time().strftime("%Y-%m-%d %I:%M %p")
-        st.session_state.user_data["history"].insert(0, {"Time": now, "Action": reason, "Points": actual_amount})
-        st.session_state.user_data["history"] = st.session_state.user_data["history"][:50] 
-        check_achievements()
-        save_user_data()
-    return actual_amount
+### Digital Wellbeing
+- Under 3 hrs mobile: **+5 pts** | Under 4 hrs: **+3 pts**
+- Over 5 hrs: **−5 pts** · Over 6 hrs: **−5 pts per extra hour**
+- Mobile in bed: **−5 pts** · Laptop entertainment > 0.5 hrs: **−5 pts/hr over**
 
-def claim_daily(task_name, points):
-    if task_name in st.session_state.user_data["completed_dailies"]:
-        st.warning(f"Hold up! You already claimed '{task_name}' today.")
+### Wake & Sleep
+- Wake by 5:30 AM: **+3 pts** | After 6:30 AM: **−5 pts/hr late**
+- Sleep by 10:00 PM: **+3 pts** | After 10:30 PM: **−5 pts/hr late**
+
+### Habits — Morning Brush +2 · Evening Brush +2 · Make Plan +2 · Silence +4
+
+### Maintenance (Split-Day)
+- **Bath** every 2 days · **Clean Room** every 2 days · **Laundry** every 3 days
+- +3 pts within grace period · Miss deadline → **−5 pts**
+""")
+
+st.markdown('<div class="section-divider"><span class="section-title">✦ Daily Chronicle ✦</span></div>', unsafe_allow_html=True)
+
+# ============================================================
+# DAILY MASTER LOG FORM
+# ============================================================
+today = get_today_str()
+if today in d["daily_logs"]:
+    st.success("⚔ Today's log is already sealed. Resubmit to recalculate all points.")
+
+with st.form("daily_log_form"):
+    st.markdown('<div class="form-section-head">I · Study Engine</div>', unsafe_allow_html=True)
+    study_hrs = st.number_input("Total Study Hours — 3 pts per hour", min_value=0.0, max_value=24.0, step=0.5)
+
+    st.markdown('<div class="form-section-head">II · Digital Wellbeing</div>', unsafe_allow_html=True)
+    mob_col1, mob_col2 = st.columns([2, 1])
+    with mob_col1:
+        mobile_hrs  = st.number_input("Mobile Usage (total hours)", min_value=0.0, max_value=24.0, step=0.5)
+        lap_ent_hrs = st.number_input("Laptop Entertainment (hours)", min_value=0.0, max_value=24.0, step=0.5)
+    with mob_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        mobile_bed = st.checkbox("📵 Used mobile in bed? (−5 pts)")
+
+    st.markdown('<div class="form-section-head">III · Wake &amp; Sleep</div>', unsafe_allow_html=True)
+    tc1, tc2 = st.columns(2)
+    with tc1: wake_time  = st.time_input("🌅 Wake Up Time",            value=time(5, 30))
+    with tc2: sleep_time = st.time_input("🌙 Sleep Time (last night)",  value=time(22, 0))
+
+    st.markdown('<div class="form-section-head">IV · Daily Habits</div>', unsafe_allow_html=True)
+    hc1, hc2 = st.columns(2)
+    with hc1:
+        m_brush = st.checkbox("🪥 Morning Brush (+2 pts)")
+        e_brush = st.checkbox("🪥 Evening Brush (+2 pts)")
+    with hc2:
+        plan   = st.checkbox("📋 Make Next Day Plan (+2 pts)")
+        silent = st.checkbox("🧘 Remained Silent / Focused (+4 pts)")
+
+    st.markdown('<div class="form-section-head">V · Maintenance Rites</div>', unsafe_allow_html=True)
+    st.markdown("*Check if completed today. Unchecked = grace/penalty auto-calculated.*")
+    for t_name, grace in [("Bath",2),("Clean Room",2),("Laundry",3)]:
+        st_type, st_msg = get_task_status(t_name, grace)
+        if st_type=="ok":       st.info(f"**{t_name}** (every {grace} days) — {st_msg}")
+        elif st_type=="warn":   st.warning(f"**{t_name}** (every {grace} days) — {st_msg}")
+        else:                   st.error(f"**{t_name}** (every {grace} days) — {st_msg}")
+    bath_today    = st.checkbox("🛁 Took a Bath today")
+    room_today    = st.checkbox("🧹 Cleaned my Room today")
+    laundry_today = st.checkbox("👕 Did Laundry today")
+
+    submit_log = st.form_submit_button("⚡  SEAL THE DAILY CHRONICLE")
+
+if submit_log:
+    # ── Rewind existing today log ──
+    if today in d["daily_logs"]:
+        old = d["daily_logs"][today]
+        d["balance"]      -= old["net_points"]
+        d["lifetime_exp"] -= max(0, old["net_points"])
+        d["super_stars"]  -= old["stars"]
+        d["split_tasks"]   = copy.deepcopy(old["previous_split_tasks"])
+        remove_today_history(today)
+
+    previous_split_tasks = copy.deepcopy(d["split_tasks"])
+    breakdown = []
+
+    # 1. Study
+    threshold    = 8.0 if is_saturday() else 5.0
+    earned_stars = 0.0
+    if study_hrs > threshold:
+        sp = int(threshold * 3); earned_stars = study_hrs - threshold
+        breakdown.append({"category": f"📚 Study ({study_hrs}h — {sp} pts + ⭐{round(earned_stars,2)} stars)", "earned": sp, "penalty": 0, "stars": earned_stars})
     else:
-        earned = add_points(points, task_name)
-        if earned > 0 or points < 0: 
-            st.session_state.user_data["completed_dailies"].append(task_name)
-            save_user_data()
-            if points > 0: st.success(f"Claimed: {task_name} (+{earned} pts)")
-            else: st.error(f"Penalty: {task_name} ({points} pts)")
+        sp = int(study_hrs * 3)
+        breakdown.append({"category": f"📚 Study ({study_hrs}h)", "earned": sp, "penalty": 0, "stars": 0})
 
-# --- UI DASHBOARD HEADER ---
-col_title, col_logout = st.columns([8, 2])
-with col_title:
-    st.title(f"🛡️ {st.session_state.username}")
-with col_logout:
-    st.write("")
-    if st.button("🚪 Log Out", use_container_width=True):
-        save_config({"remembered_user": None})
-        st.session_state.logged_in = False
-        st.rerun()
-
-# TAMPER LOCKOUT UI
-if st.session_state.user_data.get("tampered"):
-    st.error("🚨 CRITICAL ERROR: DATA TAMPERING DETECTED 🚨")
-    st.warning("The cryptographic signature on your save file is broken. Your account is locked. Go to Settings to Reset Your Profile.")
-
-rank_name, rank_min, rank_max = get_rank_info(st.session_state.user_data["lifetime_exp"])
-progress_val = min(1.0, max(0.0, (st.session_state.user_data["lifetime_exp"] - rank_min) / (rank_max - rank_min))) if rank_max < 999999 else 1.0
-
-st.markdown(f"**Rank:** {rank_name} | **Lifetime EXP:** {st.session_state.user_data['lifetime_exp']} / {rank_max if rank_max < 999999 else 'MAX'}")
-st.progress(progress_val)
-current_date = get_nepal_time().date()
-st.caption(f"📅 **Season [{st.session_state.user_data['current_season']}] EXP:** {st.session_state.user_data['seasonal_exp']}  |  ⏳ {(datetime(2026, 12, 1).date() - current_date).days} Days to Dec 1, 2026")
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("💰 Coins", f"{st.session_state.user_data['balance']}")
-col2.metric("🔥 Streak", f"{st.session_state.user_data['streak']}")
-baseline = st.session_state.user_data.get("baseline_screen_time")
-logs = st.session_state.user_data.get("screen_time_log", {})
-avg_screen_time = sum(list(logs.values())[-7:]) / len(list(logs.values())[-7:]) if len(logs) > 0 else (baseline if baseline else 0.0)
-col3.metric("📱 Scr Time", f"{avg_screen_time:.1f}h" if baseline else "Setup")
-col4.metric("📈 Today", f"{st.session_state.user_data['daily_earnings'].get(today_str, 0)}/100")
-
-# --- SCREEN TIME TRACKER ---
-with st.expander("📱 Log Screen Time", expanded=(baseline is None)):
-    if baseline is None:
-        st.info("👋 Set your starting Screen Time baseline.")
-        new_baseline = st.number_input("Starting daily screen time (Hours)", min_value=1.0, max_value=24.0, value=9.5, step=0.5)
-        if st.button("Set Baseline"):
-            st.session_state.user_data["baseline_screen_time"] = new_baseline
-            save_user_data()
-            st.rerun()
+    # 2. Mobile
+    if mobile_hrs < 3:
+        breakdown.append({"category":"📱 Mobile < 3hrs bonus","earned":5,"penalty":0})
+    elif mobile_hrs < 4:
+        breakdown.append({"category":"📱 Mobile < 4hrs bonus","earned":3,"penalty":0})
+    elif mobile_hrs > 5:
+        pen = 5 + (math.ceil(mobile_hrs - 6) * 5 if mobile_hrs > 6 else 0)
+        breakdown.append({"category":f"📱 Mobile overuse ({mobile_hrs}h)","earned":0,"penalty":pen})
     else:
-        st_col1, st_col2 = st.columns([2, 1])
-        with st_col1:
-            current_val = st.session_state.user_data["screen_time_log"].get(today_str, avg_screen_time)
-            today_hours = st.number_input("Log Today's Hours (+3 pts/hr saved)", min_value=0.0, max_value=24.0, value=float(current_val), step=0.5)
-        with st_col2:
-            st.write("")
-            st.write("")
-            if st.button("Submit Time"):
-                diff = avg_screen_time - today_hours
-                new_points = int(diff * 3) 
-                if today_str in st.session_state.user_data["screen_time_points_awarded"]:
-                    old_points = st.session_state.user_data["screen_time_points_awarded"][today_str]
-                    st.session_state.user_data["balance"] -= old_points
-                    if old_points > 0:
-                        st.session_state.user_data["daily_earnings"][today_str] = max(0, st.session_state.user_data["daily_earnings"].get(today_str,0) - old_points)
-                earned = add_points(new_points, f"Screen Time ({today_hours}h)", bypass_cap=False)
-                st.session_state.user_data["screen_time_log"][today_str] = today_hours
-                st.session_state.user_data["screen_time_points_awarded"][today_str] = earned
-                save_user_data()
-                st.rerun()
+        breakdown.append({"category":f"📱 Mobile ({mobile_hrs}h) — neutral","earned":0,"penalty":0})
+    if mobile_bed:
+        breakdown.append({"category":"🛏️ Mobile in bed penalty","earned":0,"penalty":5})
+    if lap_ent_hrs > 0.5:
+        pen = math.ceil(lap_ent_hrs - 0.5) * 5
+        breakdown.append({"category":f"💻 Laptop entertainment ({lap_ent_hrs}h)","earned":0,"penalty":pen})
 
-# --- TASKS & STUDY ---
-st.markdown("---")
-earn_col1, earn_col2, earn_col3 = st.columns(3)
-tasks = st.session_state.user_data["custom_tasks"]
-with earn_col1:
-    st.subheader("☀️ Morning")
-    for task, pts in tasks.get("Morning", {}).items():
-        if st.button(f"{task} [+{pts}]", key=task): claim_daily(task, pts)
-with earn_col2:
-    st.subheader("🌙 Evening")
-    for task, pts in tasks.get("Evening", {}).items():
-        if st.button(f"{task} [+{pts}]", key=task): claim_daily(task, pts)
-with earn_col3:
-    st.subheader("🧹 Chores")
-    for task, pts in tasks.get("Chores", {}).items():
-        if st.button(f"{task} [+{pts}]", key=task): claim_daily(task, pts)
+    # 3. Wake / Sleep
+    wake_f  = wake_time.hour  + wake_time.minute  / 60.0
+    sleep_f = sleep_time.hour + sleep_time.minute / 60.0
+    if sleep_f < 5.0: sleep_f += 24
+    if wake_f <= 5.5:
+        breakdown.append({"category":f"🌅 Early rise ({wake_time.strftime('%H:%M')})","earned":3,"penalty":0})
+    elif wake_f > 6.5:
+        pen = math.ceil(wake_f - 6.5) * 5
+        breakdown.append({"category":f"🌅 Late rise ({wake_time.strftime('%H:%M')})","earned":0,"penalty":pen})
+    else:
+        breakdown.append({"category":f"🌅 Wake time ({wake_time.strftime('%H:%M')}) — neutral","earned":0,"penalty":0})
+    if sleep_f <= 22.0:
+        breakdown.append({"category":f"🌙 Early sleep ({sleep_time.strftime('%H:%M')})","earned":3,"penalty":0})
+    elif sleep_f > 22.5:
+        pen = math.ceil(sleep_f - 22.5) * 5
+        breakdown.append({"category":f"🌙 Late sleep ({sleep_time.strftime('%H:%M')})","earned":0,"penalty":pen})
+    else:
+        breakdown.append({"category":f"🌙 Sleep ({sleep_time.strftime('%H:%M')}) — neutral","earned":0,"penalty":0})
 
-with st.expander("⏱️ Deep Work & Pomodoro"):
-    pomo_sessions = st.number_input("50-Min Pomodoros [+3]", min_value=0, max_value=10, value=0)
-    lectures = st.number_input("Lectures [+2]", min_value=0, max_value=15, value=0)
-    numericals = st.number_input("Numericals [+1]", min_value=0, max_value=50, value=0)
-    if st.button("Log Study Session", use_container_width=True):
-        earned = (pomo_sessions * 3) + (lectures * 2) + (numericals * 1)
-        if earned > 0:
-            add_points(earned, f"Study: {pomo_sessions}P, {lectures}L, {numericals}N")
-            st.success("Study logged!")
+    # 4. Habits
+    if m_brush: breakdown.append({"category":"🪥 Morning Brush","earned":2,"penalty":0})
+    if e_brush: breakdown.append({"category":"🪥 Evening Brush","earned":2,"penalty":0})
+    if plan:    breakdown.append({"category":"📋 Next Day Plan","earned":2,"penalty":0})
+    if silent:  breakdown.append({"category":"🧘 Silence / Focus","earned":4,"penalty":0})
 
-st.markdown("---")
-st.subheader("⚠️ Penalties")
-pen_cols = st.columns(3)
-col_idx = 0
-for task, pts in tasks.get("Penalties", {}).items():
-    with pen_cols[col_idx % 3]:
-        if st.button(f"{task} [{pts}]", key=task): claim_daily(task, pts)
-    col_idx += 1
-
-# --- MYSTERY SHOP & GACHA ---
-st.markdown("---")
-if 'show_shop' not in st.session_state: st.session_state.show_shop = False
-if st.button("🛒 OPEN RPG SHOP & GACHA", use_container_width=True): st.session_state.show_shop = not st.session_state.show_shop
-
-if st.session_state.show_shop:
-    st.info(f"Balance: **{st.session_state.user_data['balance']} coins**")
-    
-    st.markdown("### 🎲 Mystery Relic Box (Cost: 25 Coins)")
-    if st.button("Roll Mystery Box", type="primary"):
-        if st.session_state.user_data["balance"] >= 25:
-            add_points(-25, "Bought: Mystery Box", bypass_cap=True)
-            roll = random.random()
-            if roll < 0.05: 
-                item = random.choice(VIRTUAL_ITEMS["Legendary"])
-                st.session_state.user_data["inventory"].append(item)
-                st.balloons()
-                st.success(f"🎇 LEGENDARY PULL! You found: {item}")
-            elif roll < 0.20: 
-                item = random.choice(VIRTUAL_ITEMS["Epic"])
-                st.session_state.user_data["inventory"].append(item)
-                st.success(f"✨ EPIC PULL! You found: {item}")
-            elif roll < 0.50: 
-                item = random.choice(VIRTUAL_ITEMS["Rare"])
-                st.session_state.user_data["inventory"].append(item)
-                st.info(f"🔹 Rare Pull. You found: {item}")
-            else: 
-                item = random.choice(VIRTUAL_ITEMS["Common"])
-                st.session_state.user_data["inventory"].append(item)
-                st.write(f"📦 Common Pull. You found: {item}")
-            check_achievements()
-            save_user_data()
-        else: st.warning("Not enough coins.")
-
-    st.markdown("### 🍔 Real Life Rewards")
-    shop_cols = st.columns(3)
-    c_idx = 0
-    for item_name, item_cost in st.session_state.user_data["shop_items"].items():
-        with shop_cols[c_idx % 3]:
-            if st.button(f"{item_name}\n({item_cost})", key=item_name):
-                if st.session_state.user_data["balance"] >= item_cost:
-                    add_points(-item_cost, f"Bought: {item_name}", bypass_cap=True)
-                    st.success(f"Purchased: {item_name}!")
-                else: st.warning("Insufficient coins.")
-        c_idx += 1
-
-    st.markdown("### 👑 Direct Buy: Virtual Relics")
-    v_cols = st.columns(3)
-    v_idx = 0
-    for v_item, v_cost in ITEM_PRICES.items():
-        with v_cols[v_idx % 3]:
-            if st.button(f"Buy {v_item}\n({v_cost})", key=f"v_{v_item}"):
-                if st.session_state.user_data["balance"] >= v_cost:
-                    add_points(-v_cost, f"Bought Relic: {v_item}", bypass_cap=True)
-                    st.session_state.user_data["inventory"].append(v_item)
-                    save_user_data()
-                    st.success(f"Relic Acquired: {v_item}!")
-                else: st.warning("Insufficient coins.")
-        v_idx += 1
-
-st.markdown("---")
-with st.expander("🏆 My Collection & Achievements"):
-    tab_ach, tab_inv = st.tabs(["Achievements", "Virtual Inventory"])
-    with tab_ach:
-        st.write(f"**Unlocked: {len(st.session_state.user_data['unlocked_achievements'])} / {len(ACHIEVEMENTS)}**")
-        for ach, info in ACHIEVEMENTS.items():
-            if ach in st.session_state.user_data["unlocked_achievements"]:
-                st.success(f"✅ **{ach}**: {info['desc']}")
-            else:
-                st.write(f"🔒 **???**: {info['desc']}")
-    with tab_inv:
-        inventory = st.session_state.user_data["inventory"]
-        if len(inventory) == 0: st.write("You have no relics. Buy a Mystery Box!")
+    # 5. Maintenance
+    for t_name, did_today, grace_days in [("Bath",bath_today,2),("Clean Room",room_today,2),("Laundry",laundry_today,3)]:
+        last_dt = datetime.strptime(d["split_tasks"][t_name],"%Y-%m-%d").date()
+        if did_today:
+            d["split_tasks"][t_name] = today
+            breakdown.append({"category":f"🧹 {t_name} ✓ done","earned":3,"penalty":0})
         else:
-            from collections import Counter
-            counts = Counter(inventory)
-            for item, count in counts.items():
-                st.write(f"▪️ {item} (x{count})")
-
-st.markdown("---")
-with st.expander("📝 Point Audit Log (History)"):
-    if len(st.session_state.user_data["history"]) > 0:
-        st.dataframe(pd.DataFrame(st.session_state.user_data["history"]), use_container_width=True, hide_index=True)
-
-# --- SECURE ADMIN PANEL WITH RATE LIMITING ---
-with st.expander("⚙️ Admin & Fixes (Rate Limited)"):
-    tracker = st.session_state.user_data["override_tracker"]
-    
-    st.subheader("Manual Mistake Override")
-    st.write(f"**Daily Limit:** {tracker['daily_count']} / 5")
-    st.write(f"**Monthly Limit:** {tracker['monthly_count']} / 30")
-    
-    if tracker["daily_count"] >= 5:
-        st.error("🛑 You have exhausted your 5 daily override limits. Come back tomorrow.")
-    elif tracker["monthly_count"] >= 30:
-        st.error("🛑 You have exhausted your 30 monthly override limits.")
-    else:
-        correction = st.number_input("Points to Add/Subtract (Max +/- 10)", min_value=-10, max_value=10, value=0, step=1, key="manual_pts")
-        reason = st.text_input("Reason for Override (Required)", placeholder="e.g. Forgot to log morning brush...")
-        
-        if st.button("Apply Manual Override"):
-            if correction == 0:
-                st.warning("Please enter a number other than 0.")
-            elif reason.strip() == "":
-                st.error("A written reason is required to maintain the audit trail.")
+            days_since = (get_now().date() - last_dt).days
+            if days_since <= grace_days:
+                breakdown.append({"category":f"🧹 {t_name} (grace period)","earned":3,"penalty":0})
             else:
-                add_points(correction, f"Admin Override: {reason}", bypass_cap=True)
-                st.session_state.user_data["override_tracker"]["daily_count"] += 1
-                st.session_state.user_data["override_tracker"]["monthly_count"] += 1
-                save_user_data()
-                st.success(f"Wallet adjusted by {correction}. Reason logged to audit trail.")
-                st.rerun()
-                
-    st.markdown("---")
-    st.error("🚨 DANGER ZONE")
-    if st.button("Reset My Entire Profile"):
-        st.session_state.user_data = get_default_data()
-        save_user_data()
-        st.warning("Profile reset to zero. Fresh start initialized.")
-        st.rerun()
+                breakdown.append({"category":f"🧹 {t_name} OVERDUE","earned":0,"penalty":5})
+
+    # ── Totals ──
+    total_earned  = sum(b["earned"]  for b in breakdown)
+    total_penalty = sum(b["penalty"] for b in breakdown)
+    net_points    = total_earned - total_penalty
+
+    # ── Commit ──
+    d["balance"]     += net_points
+    d["super_stars"] += earned_stars
+    if net_points > 0: d["lifetime_exp"] += net_points
+
+    log_daily_breakdown(today, breakdown, net_points, earned_stars, d["balance"])
+    d["daily_logs"][today] = {
+        "net_points": net_points, "stars": earned_stars,
+        "previous_split_tasks": previous_split_tasks,
+    }
+
+    last_date = datetime.strptime(d["last_login"],"%Y-%m-%d").date()
+    if   get_now().date() - last_date == timedelta(days=1): d["streak"] += 1
+    elif get_now().date() != last_date:                     d["streak"]  = 1
+    d["last_login"] = today
+
+    save_state(); check_achievements()
+    st.success(f"Chronicle sealed ✦ Earned **{total_earned} pts** · Penalties **{total_penalty} pts** · Net **{net_points} coins** · Stars **+{round(earned_stars,2)} ⭐**")
+    st.rerun()
+
+# ============================================================
+# ITEMISED LEDGER  —  grouped by date, each category a row
+# ============================================================
+st.markdown('<div class="section-divider"><span class="section-title">✦ Account Statement ✦</span></div>', unsafe_allow_html=True)
+with st.expander("🧾  STATEMENT OF ACCOUNT — Itemised Ledger"):
+    if not d["history"]:
+        st.markdown("<p style='color:#6a5a38;font-style:italic;text-align:center;padding:2rem'>No entries yet.</p>", unsafe_allow_html=True)
+    else:
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for entry in d["history"]:
+            groups[entry.get("date", "—")].append(entry)
+
+        for date_key in sorted(groups.keys(), reverse=True):
+            rows = groups[date_key]
+            header = next((r for r in rows if r.get("type") == "daily_header"), None)
+            # FIX: use .get("net", 0) to handle old entries missing the key
+            net    = header["net"] if header else sum(r.get("net", 0) for r in rows)
+            bal    = rows[0].get("balance", 0)
+            net_cls = "pos" if net >= 0 else "neg"
+            net_sign = "+" if net >= 0 else ""
+
+            # Get a time string from the most recent row
+            last_time = rows[0].get("time", "") if rows else ""
+
+            items_html = ""
+            for r in reversed(rows):
+                if r.get("type") == "daily_header": continue
+                e = r.get("earned", 0)
+                p = r.get("penalty", 0)
+                cat = r.get("category", "—")
+                if e > 0 and p == 0:
+                    pts_html = f'<span class="ledger-pts earn">+{e}</span>'
+                elif p > 0 and e == 0:
+                    pts_html = f'<span class="ledger-pts pen">−{p}</span>'
+                elif e > 0 and p > 0:
+                    pts_html = f'<span class="ledger-pts earn">+{e}</span> <span class="ledger-pts pen">−{p}</span>'
+                else:
+                    pts_html = f'<span class="ledger-pts zero">0</span>'
+                star_bit = f' <span class="ledger-pts stars">⭐+{round(r.get("stars", 0), 2)}</span>' if r.get("stars", 0) > 0 else ""
+                items_html += f'<div class="ledger-row"><span class="ledger-cat">{cat}</span>{pts_html}{star_bit}</div>'
+
+            # Non-daily transactions (shop, manual)
+            txn_rows = [r for r in rows if r.get("type") == "transaction"]
+            for r in reversed(txn_rows):
+                n = r.get("net", 0)
+                pts_html = f'<span class="ledger-pts earn">+{n}</span>' if n >= 0 else f'<span class="ledger-pts pen">−{abs(n)}</span>'
+                items_html += f'<div class="ledger-row"><span class="ledger-cat">{r.get("category", "—")}</span>{pts_html}</div>'
+
+            st.markdown(f"""
+<div class="ledger-group">
+    <div class="ledger-group-header">
+        <span class="ledger-group-date">📅 {date_key} · {last_time}</span>
+        <span class="ledger-group-net {net_cls}">Net: {net_sign}{net} coins</span>
+    </div>
+    {items_html}
+    <div class="ledger-balance-row">running balance → <span class="ledger-balance-val">💰 {bal}</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# THE GRAND BAZAAR
+# ============================================================
+st.markdown('<div class="section-divider"><span class="section-title">✦ The Grand Bazaar ✦</span></div>', unsafe_allow_html=True)
+
+tab_food, tab_virtual, tab_inv, tab_ach = st.tabs([
+    "🍜  Nepali Foods", "🏺  Virtual Artifacts", "🎒  My Collection", "🏆  Achievements"
+])
+
+with tab_food:
+    cols = st.columns(4)
+    for idx, (item, (emoji, price)) in enumerate(REAL_FOODS.items()):
+        with cols[idx % 4]:
+            st.markdown(f"""
+            <div class="shop-item">
+                <span class="shop-item-emoji">{emoji}</span>
+                <span class="shop-item-name">{item}</span>
+                <span class="shop-item-price">💰 {price} coins</span>
+            </div>""", unsafe_allow_html=True)
+            if st.button("Buy", key=f"f_{item}"):
+                if d["balance"] >= price:
+                    log_transaction(f"Ate {item}", -price)
+                    check_achievements()
+                    st.success(f"Enjoy your {item}! {emoji}")
+                    st.rerun()
+                else:
+                    st.error("Not enough coins.")
+
+with tab_virtual:
+    for tier, items in VIRTUAL_SHOP.items():
+        tier_css = TIER_CSS[tier]; tier_icon = TIER_ICONS[tier]
+        st.markdown(f'<div><span class="tier-badge {tier_css}">{tier_icon} {tier}</span></div>', unsafe_allow_html=True)
+        cols = st.columns(3)
+        for idx, (item, (emoji, price)) in enumerate(items.items()):
+            with cols[idx % 3]:
+                owned = d["inventory"].count(item)
+                owned_txt = f" · ×{owned} owned" if owned else ""
+                st.markdown(f"""
+                <div class="shop-item">
+                    <span class="shop-item-emoji">{emoji}</span>
+                    <span class="shop-item-name">{item}{'  ✅' if owned else ''}</span>
+                    <span class="shop-item-price">💰 {price} coins{owned_txt}</span>
+                </div>""", unsafe_allow_html=True)
+                if st.button("Acquire", key=f"v_{item}"):
+                    if d["balance"] >= price:
+                        d["inventory"].append(item)
+                        log_transaction(f"Bought {item}", -price)
+                        check_achievements(); st.balloons()
+                        st.success(f"Artifact acquired: {item}! {emoji}")
+                        st.rerun()
+                    else:
+                        st.error("Not enough coins.")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+with tab_inv:
+    if not d["inventory"]:
+        st.markdown("<p style='color:#6a5a38;font-style:italic;text-align:center;padding:3rem'>Your vault is empty. Start earning!</p>", unsafe_allow_html=True)
+    else:
+        counts = Counter(d["inventory"])
+        all_virtual = {k:(e,p) for tier in VIRTUAL_SHOP.values() for k,(e,p) in tier.items()}
+        for item, count in counts.items():
+            emoji = all_virtual.get(item, ("🏺",0))[0]
+            st.markdown(f'<div class="inv-item"><span>{emoji} {item}</span><span class="inv-count">×{count}</span></div>', unsafe_allow_html=True)
+
+with tab_ach:
+    unlocked_set   = set(d["unlocked_achievements"])
+    unlocked_items = [(n,v) for n,v in ACHIEVEMENTS.items() if n in unlocked_set]
+    locked_items   = [(n,v) for n,v in ACHIEVEMENTS.items() if n not in unlocked_set]
+    if unlocked_items:
+        st.markdown(f"<p style='font-family:Cinzel,serif;font-size:0.63rem;letter-spacing:0.25em;color:#c9a84c;margin-bottom:0.8rem'>UNLOCKED — {len(unlocked_items)}/{len(ACHIEVEMENTS)}</p>", unsafe_allow_html=True)
+        cols = st.columns(2)
+        for idx,(name,(icon,desc)) in enumerate(unlocked_items):
+            with cols[idx%2]:
+                st.markdown(f'<div class="ach-card unlocked"><span class="ach-icon">{icon}</span><div><span class="ach-name">{name}</span><span class="ach-desc">{desc}</span></div></div>', unsafe_allow_html=True)
+    if locked_items:
+        st.markdown(f"<p style='font-family:Cinzel,serif;font-size:0.63rem;letter-spacing:0.25em;color:#3a3020;margin:1.2rem 0 0.8rem'>LOCKED — {len(locked_items)} remaining</p>", unsafe_allow_html=True)
+        cols = st.columns(2)
+        for idx,(name,(icon,desc)) in enumerate(locked_items):
+            with cols[idx%2]:
+                st.markdown(f'<div class="ach-card"><span class="ach-icon" style="filter:grayscale(1);opacity:0.35">🔒</span><div><span class="ach-name">{name}</span><span class="ach-desc">{desc}</span></div></div>', unsafe_allow_html=True)
+
+# ============================================================
+# ADMIN PANEL
+# ============================================================
+st.markdown('<div class="section-divider"><span class="section-title">✦ Administration ✦</span></div>', unsafe_allow_html=True)
+with st.expander("⚙️  SECURE ADMINISTRATION — Vault Master Controls"):
+
+    st.markdown('<div class="form-section-head">Manual Coin Correction</div>', unsafe_allow_html=True)
+    correction = st.number_input("Adjustment (+/−)", value=0, step=1, key="admin_corr")
+    reason_txt = st.text_input("Reason — required", key="admin_reason")
+    if st.button("⚡ Apply Override"):
+        if not reason_txt.strip():
+            st.error("A reason is required.")
+        else:
+            log_transaction(f"MANUAL: {reason_txt}", correction)
+            st.success(f"Adjusted by {correction} coins. Logged.")
+            st.rerun()
+
+    st.markdown('<div class="form-section-head">🔄 Reset Today\'s Log Only</div>', unsafe_allow_html=True)
+    st.markdown("<p style='color:#b0a07a;font-size:0.95rem'>Wipes <strong>only today's</strong> daily log entry and its coin/star effects. All previous days and inventory are untouched.</p>", unsafe_allow_html=True)
+    if st.button("↩ Reset Today's Log"):
+        if today in d["daily_logs"]:
+            old = d["daily_logs"][today]
+            d["balance"]      -= old["net_points"]
+            d["lifetime_exp"] -= max(0, old["net_points"])
+            d["super_stars"]  -= old["stars"]
+            d["split_tasks"]   = copy.deepcopy(old["previous_split_tasks"])
+            remove_today_history(today)
+            del d["daily_logs"][today]
+            save_state()
+            st.success("Today's log has been reset. You can submit a fresh entry above.")
+            st.rerun()
+        else:
+            st.info("No log found for today — nothing to reset.")
+
+    st.markdown('<div class="form-section-head">Change Admin Password</div>', unsafe_allow_html=True)
+    old_pw = st.text_input("Current Password", type="password", key="old_pw")
+    new_pw = st.text_input("New Password",     type="password", key="new_pw")
+    if st.button("🔑 Update Password"):
+        if old_pw == d["admin_password"]:
+            if new_pw: d["admin_password"] = new_pw; save_state(); st.success("Password updated.")
+            else: st.error("New password cannot be empty.")
+        else: st.error("Incorrect current password.")
+
+    st.markdown('<div class="form-section-head" style="color:#aa5050;border-color:#3a1818">⚠ Danger Zone — Full Reset</div>', unsafe_allow_html=True)
+    st.error("Permanently erases ALL data — coins, stars, history, inventory, streaks.")
+    reset_pw = st.text_input("Admin Password to confirm", type="password", key="reset_pw")
+    if st.button("💀 Destroy & Reset Everything"):
+        if reset_pw == d["admin_password"]:
+            st.session_state.user_data = get_default_data()
+            save_db(st.session_state.user_data)
+            st.warning("Vault wiped. A new chronicle begins.")
+            st.rerun()
+        elif reset_pw:
+            st.error("Incorrect password — reset aborted.")

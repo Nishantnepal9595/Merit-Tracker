@@ -599,6 +599,8 @@ def save_db(data):
 
 if "user_data" not in st.session_state:
     st.session_state.user_data = load_db()
+if "form_key" not in st.session_state:
+    st.session_state.form_key = 0
 d = st.session_state.user_data
 def save_state(): save_db(st.session_state.user_data)
 
@@ -773,10 +775,34 @@ st.markdown('<div class="section-divider"><span class="section-title">✦ Daily 
 # DAILY MASTER LOG FORM
 # ============================================================
 today = get_today_str()
-if today in d["daily_logs"]:
-    st.success("⚔ Today's log is already sealed. Resubmit to recalculate all points.")
+if "last_log_result" in st.session_state:
+    r = st.session_state.pop("last_log_result")
+    net_col = "green" if r["net"] >= 0 else "red"
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, #f5ead8, #ede0c4);
+        border: 2px solid #c9a84c;
+        border-radius: 6px;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 1rem;
+        font-family: 'Cinzel', serif;
+        text-align: center;
+        box-shadow: 0 4px 20px rgba(201,168,76,0.25);
+    ">
+        <div style="font-size:1.8rem; margin-bottom:0.4rem;">⚔ Chronicle Sealed ⚔</div>
+        <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap; margin-top:0.5rem;">
+            <span style="color:#2a7a2a; font-size:1rem;">✦ Earned: +{r['earned']} pts</span>
+            <span style="color:#aa3030; font-size:1rem;">✦ Penalties: -{r['penalty']} pts</span>
+            <span style="color:{'#2a7a2a' if r['net']>=0 else '#aa3030'}; font-size:1.1rem; font-weight:700;">⚡ Net: {'+' if r['net']>=0 else ''}{r['net']} coins</span>
+            <span style="color:#c9a84c; font-size:1rem;">⭐ Stars: +{r['stars']}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-with st.form("daily_log_form"):
+if today in d["daily_logs"]:
+    st.info("⚔ Today's log is already sealed. Resubmit to recalculate all points.")
+
+with st.form(f"daily_log_form_{st.session_state.form_key}"):
     st.markdown('<div class="form-section-head">I · Study Engine</div>', unsafe_allow_html=True)
     study_hrs = st.number_input("Total Study Hours — 3 pts per hour", min_value=0.0, max_value=24.0, step=0.5)
 
@@ -915,8 +941,14 @@ if submit_log:
     d["last_login"] = today
 
     save_state(); check_achievements()
-    st.success(f"Chronicle sealed ✦ Earned **{total_earned} pts** · Penalties **{total_penalty} pts** · Net **{net_points} coins** · Stars **+{round(earned_stars,2)} ⭐**")
-    st.rerun()
+    st.session_state["last_log_result"] = {
+        "earned": total_earned,
+        "penalty": total_penalty,
+        "net": net_points,
+        "stars": round(earned_stars, 2),
+    }
+    st.session_state.form_key += 1
+    st.rerun())
 
 # ============================================================
 # ITEMISED LEDGER  —  grouped by date, each category a row
@@ -1003,7 +1035,7 @@ with tab_food:
                     d["inventory"].append(f"FOOD::{item}::{emoji}")
                     save_state()
                     check_achievements()
-                    st.success(f"Added {item} {emoji} to inventory!")
+                    st.toast(f"✦ {item} added to your stash! {emoji}", icon="🛒")
                     st.rerun()
                 else:
                     st.error("Not enough coins.")
@@ -1070,7 +1102,7 @@ with tab_inv:
                         })
                         save_state()
                         check_achievements()
-                        st.success(f"Enjoyed your {name}! {emoji} Bon appétit!")
+                        st.toast(f"✦ Enjoyed your {name}! {emoji}", icon="🍽️")
                         st.rerun()
 
         # ── Virtual Artifacts ──

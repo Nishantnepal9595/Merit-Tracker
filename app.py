@@ -95,7 +95,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
     font-family: 'Crimson Pro', serif;
     font-style: italic;
     font-size: 1.1rem;
-    color: #9a8a62;
+    color: #6a5530;
     letter-spacing: 0.2em;
     margin-top: 0.4rem;
 }
@@ -117,7 +117,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 }
 .stat-card {
     background: linear-gradient(135deg, #f5ead8 0%, #ede0c4 100%);
-    border: 1px solid #3a3020;
+    border: 1px solid #d4c09a;
     border-top: 2px solid var(--accent, #c9a84c);
     border-radius: 6px;
     padding: 1.2rem 1.4rem 1rem;
@@ -148,7 +148,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 .stat-sub {
     font-family: 'Crimson Pro', serif;
     font-size: 0.82rem;
-    color: #6a5f45;
+    color: #9a8050;
     margin-top: 0.2rem;
     font-style: italic;
 }
@@ -173,8 +173,8 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 
 /* ── Form styling ── */
 .stForm {
-    background: linear-gradient(160deg, #1e1a12 0%, #241f14 100%) !important;
-    border: 1px solid #3a3020 !important;
+    background: linear-gradient(160deg, #f8f0e0 0%, #f2e8d0 100%) !important;
+    border: 1px solid #d4c09a !important;
     border-radius: 6px !important;
     padding: 1.5rem !important;
 }
@@ -191,10 +191,10 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 
 /* ── Inputs ── */
 .stNumberInput input, .stTextInput input, .stTimeInput input {
-    background: #141008 !important;
-    border: 1px solid #3a3020 !important;
+    background: #faf4e8 !important;
+    border: 1px solid #d4c09a !important;
     border-radius: 3px !important;
-    color: #e0d0a8 !important;
+    color: #2a2010 !important;
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.9rem !important;
 }
@@ -203,7 +203,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
     box-shadow: 0 0 0 2px rgba(201,168,76,0.2) !important;
 }
 .stCheckbox label {
-    color: #d4c49a !important;
+    color: #3a3020 !important;
     font-family: 'Crimson Pro', serif !important;
     font-size: 1.02rem !important;
 }
@@ -213,15 +213,15 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 .stTimeInput label, div[data-testid="stWidgetLabel"] p {
     font-family: 'Crimson Pro', serif !important;
     font-size: 0.97rem !important;
-    color: #b0a07a !important;
+    color: #5a4a20 !important;
 }
 
 /* ── Buttons ── */
 .stButton > button {
-    background: linear-gradient(135deg, #282010 0%, #332a12 100%) !important;
+    background: linear-gradient(135deg, #f0e8d0 0%, #e8dcc0 100%) !important;
     border: 1px solid #5a4a28 !important;
     border-radius: 3px !important;
-    color: #d4b86a !important;
+    color: #7a5a10 !important;
     font-family: 'Cinzel', serif !important;
     font-size: 0.72rem !important;
     letter-spacing: 0.15em !important;
@@ -279,16 +279,16 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 
 /* ── Expander ── */
 .stExpander {
-    background: #1e1a12 !important;
-    border: 1px solid #3a3020 !important;
+    background: #f8f2e4 !important;
+    border: 1px solid #d4c09a !important;
     border-radius: 4px !important;
 }
-.stExpander summary { color: #9a8a62 !important; font-family: 'Cinzel', serif !important; font-size: 0.73rem !important; letter-spacing: 0.18em !important; }
+.stExpander summary { color: #6a5530 !important; font-family: 'Cinzel', serif !important; font-size: 0.73rem !important; letter-spacing: 0.18em !important; }
 
 /* ── Metric containers ── */
 [data-testid="metric-container"] {
     background: linear-gradient(135deg, #f5ead8 0%, #ede0c4 100%) !important;
-    border: 1px solid #3a3020 !important;
+    border: 1px solid #d4c09a !important;
     border-top: 2px solid #c9a84c !important;
     border-radius: 4px !important;
     padding: 1rem !important;
@@ -328,26 +328,26 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 }
 
 /* ── Dataframe / Ledger ── */
-.stDataFrame { border: 1px solid #3a3020 !important; border-radius: 4px !important; }
+.stDataFrame { border: 1px solid #d4c09a !important; border-radius: 4px !important; }
 [data-testid="stDataFrame"] th {
     background: #221e16 !important;
     font-family: 'Cinzel', serif !important;
     font-size: 0.63rem !important;
     letter-spacing: 0.12em !important;
-    color: #9a8a62 !important;
+    color: #6a5530 !important;
     border-bottom: 1px solid #3a3020 !important;
 }
 [data-testid="stDataFrame"] td {
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.8rem !important;
-    color: #d4c49a !important;
-    background: #1a1610 !important;
+    color: #3a3020 !important;
+    background: #f0e8d4 !important;
 }
 
 /* ── Shop item cards ── */
 .shop-item {
-    background: linear-gradient(160deg, #221e14, #2a2418);
-    border: 1px solid #3a3020;
+    background: linear-gradient(160deg, #f8f0e0, #f0e8d0);
+    border: 1px solid #d4c09a;
     border-radius: 6px;
     padding: 1rem 0.8rem 0.7rem;
     text-align: center;
@@ -391,7 +391,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 .ach-card {
     display: flex; align-items: flex-start; gap: 0.8rem;
     padding: 0.9rem 1rem;
-    background: #1e1a12;
+    background: #f8f2e4;
     border: 1px solid #2a2418;
     border-radius: 5px;
     margin-bottom: 0.5rem;
@@ -403,13 +403,13 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 .ach-name { font-family: 'Cinzel', serif; font-size: 0.72rem; letter-spacing: 0.1em; color: #6a5a38; display: block; margin-bottom: 0.15rem; }
 .ach-card.unlocked .ach-name { color: #c9a84c; }
 .ach-desc { font-family: 'Crimson Pro', serif; font-style: italic; font-size: 0.88rem; color: #5a5038; }
-.ach-card.unlocked .ach-desc { color: #9a8a62; }
+.ach-card.unlocked .ach-desc { color: #6a5530; }
 
 /* ── Inventory items ── */
 .inv-item {
     display: flex; justify-content: space-between; align-items: center;
     padding: 0.7rem 1rem;
-    background: #1e1a12;
+    background: #f8f2e4;
     border: 1px solid #2a2418;
     border-left: 3px solid #c9a84c;
     border-radius: 3px;
@@ -429,13 +429,13 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 
 /* ── Ledger line items ── */
 .ledger-group {
-    border: 1px solid #3a3020;
+    border: 1px solid #d4c09a;
     border-radius: 6px;
     overflow: hidden;
     margin-bottom: 1rem;
 }
 .ledger-group-header {
-    background: linear-gradient(135deg, #2a2418, #322c1c);
+    background: linear-gradient(135deg, #ede0c4, #e4d4b0);
     padding: 0.6rem 1rem;
     display: flex;
     justify-content: space-between;
@@ -445,7 +445,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 .ledger-group-date {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.75rem;
-    color: #9a8a62;
+    color: #6a5530;
     letter-spacing: 0.1em;
 }
 .ledger-group-net {
@@ -485,7 +485,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
     align-items: center;
     gap: 0.6rem;
     padding: 0.4rem 1rem;
-    background: #221e12;
+    background: #ede4cc;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.72rem;
     color: #7a6a48;
@@ -494,7 +494,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important;
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #1a1610; }
+::-webkit-scrollbar-track { background: #f0e8d4; }
 ::-webkit-scrollbar-thumb { background: #3a3020; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #5a4a28; }
 </style>

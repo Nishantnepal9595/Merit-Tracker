@@ -55,9 +55,9 @@ section[data-testid="stSidebar"],
     font-family: 'Crimson Pro', serif;
     font-size: 1.05rem;
     line-height: 1.75;
-    color: #ddd0aa;
+    color: #3a3020;
 }
-h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #e8d48a !important; }
+h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #7a5a10 !important; }
 
 /* ── Hero ── */
 .vault-hero {
@@ -116,7 +116,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #e8d48a !important;
     margin: 1.5rem 0 2rem;
 }
 .stat-card {
-    background: linear-gradient(135deg, #221e16 0%, #2a2418 100%);
+    background: linear-gradient(135deg, #f5ead8 0%, #ede0c4 100%);
     border: 1px solid #3a3020;
     border-top: 2px solid var(--accent, #c9a84c);
     border-radius: 6px;
@@ -287,7 +287,7 @@ h1, h2, h3 { font-family: 'Cinzel', serif !important; color: #e8d48a !important;
 
 /* ── Metric containers ── */
 [data-testid="metric-container"] {
-    background: linear-gradient(135deg, #221e16 0%, #2a2418 100%) !important;
+    background: linear-gradient(135deg, #f5ead8 0%, #ede0c4 100%) !important;
     border: 1px solid #3a3020 !important;
     border-top: 2px solid #c9a84c !important;
     border-radius: 4px !important;
